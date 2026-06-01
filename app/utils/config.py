@@ -1,0 +1,44 @@
+from functools import lru_cache
+from os import getenv
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+Environment = Literal["local", "development", "staging", "production", "test"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class Settings(BaseModel):
+    app_name: str = Field(default="Enterprise Text-to-SQL API")
+    app_version: str = Field(default="0.1.0")
+    environment: Environment = Field(default="local")
+    debug: bool = Field(default=False)
+
+    docs_url: str | None = Field(default="/docs")
+    redoc_url: str | None = Field(default="/redoc")
+    openapi_url: str | None = Field(default="/openapi.json")
+
+    log_level: LogLevel = Field(default="INFO")
+    log_format: Literal["json", "plain"] = Field(default="json")
+
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    value = getenv(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings(
+        app_name=getenv("APP_NAME", "Enterprise Text-to-SQL API"),
+        app_version=getenv("APP_VERSION", "0.1.0"),
+        environment=getenv("ENVIRONMENT", "local"),
+        debug=_get_bool_env("DEBUG", False),
+        docs_url=getenv("DOCS_URL", "/docs"),
+        redoc_url=getenv("REDOC_URL", "/redoc"),
+        openapi_url=getenv("OPENAPI_URL", "/openapi.json"),
+        log_level=getenv("LOG_LEVEL", "INFO").upper(),
+        log_format=getenv("LOG_FORMAT", "json").lower(),
+    )
