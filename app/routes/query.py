@@ -11,7 +11,10 @@ from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.models.query import QueryRequest, QueryResponse, RetrievalStage, GenerationStage, ExecutionStage
+from app.models.query import (
+    QueryRequest,
+    QueryResponse,
+)
 from app.services.pipeline import (
     QueryPipeline,
     PipelineError,
@@ -36,6 +39,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Dependency factories — lru_cache ensures singletons per process
 # ---------------------------------------------------------------------------
+
 
 @lru_cache
 def get_retriever() -> SchemaRetriever:
@@ -78,6 +82,7 @@ def get_query_pipeline() -> QueryPipeline:
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/query",

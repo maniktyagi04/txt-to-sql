@@ -86,7 +86,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
 
         # Force SSL/TLS in browsers
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
 
         # Simple CSP header allowing local API docs
         response.headers["Content-Security-Policy"] = (
@@ -155,6 +157,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         except Exception as exc:
             # Fallback gracefully to allow requests in case caching engine goes down entirely
-            logger.error("rate_limiter_service_error_allowing_request", extra={"error": str(exc)})
+            logger.error(
+                "rate_limiter_service_error_allowing_request", extra={"error": str(exc)}
+            )
 
         return await call_next(request)

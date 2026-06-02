@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 # Domain exceptions
 # ---------------------------------------------------------------------------
 
+
 class LLMServiceError(RuntimeError):
     """Base exception for LLM service failures."""
 
@@ -36,6 +37,7 @@ class LLMMaxRetriesExceededError(LLMServiceError):
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
+
 
 class GenerationResult:
     """Holds the parsed SQL and confidence from the model."""
@@ -102,19 +104,22 @@ def _parse_response(raw: str) -> tuple[str, float]:
     if not isinstance(confidence_raw, (int, float)):
         # Attempt coercion — model might return a string
         try:
-            confidence_raw = float(confidence_raw)
+            confidence_raw = float(confidence_raw)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
             raise LLMResponseParseError(
                 f"'confidence' field is not numeric in model response: {payload!r}"
             ) from exc
 
-    confidence = max(_CONFIDENCE_CLAMP[0], min(_CONFIDENCE_CLAMP[1], float(confidence_raw)))
+    confidence = max(
+        _CONFIDENCE_CLAMP[0], min(_CONFIDENCE_CLAMP[1], float(confidence_raw))
+    )
     return sql.strip(), confidence
 
 
 # ---------------------------------------------------------------------------
 # Gemini LLM Service
 # ---------------------------------------------------------------------------
+
 
 class GeminiLLMService:
     """Wraps the google-generativeai SDK with retry logic, parsing, and logging."""
@@ -147,7 +152,10 @@ class GeminiLLMService:
             cache_key = BaseCache.generate_key("generate", prompt)
             cached_data = self.cache.get(cache_key)
             if cached_data is not None:
-                logger.info("llm_generation_cache_hit", extra={"model": self.settings.gemini_model_name})
+                logger.info(
+                    "llm_generation_cache_hit",
+                    extra={"model": self.settings.gemini_model_name},
+                )
                 return GenerationResult(
                     sql=cached_data["sql"],
                     confidence=cached_data["confidence"],
@@ -155,13 +163,18 @@ class GeminiLLMService:
                     latency_ms=cached_data["latency_ms"],
                     attempt=cached_data["attempt"],
                 )
-            logger.info("llm_generation_cache_miss", extra={"model": self.settings.gemini_model_name})
+            logger.info(
+                "llm_generation_cache_miss",
+                extra={"model": self.settings.gemini_model_name},
+            )
 
         client = self._load_client()
         max_retries = self.settings.gemini_max_retries
         last_exc: Exception | None = None
 
-        for attempt in range(1, max_retries + 2):  # +1 so 0 retries still gets 1 attempt
+        for attempt in range(
+            1, max_retries + 2
+        ):  # +1 so 0 retries still gets 1 attempt
             t_start = time.monotonic()
             try:
                 raw = self._call_api(client, prompt)
@@ -179,7 +192,7 @@ class GeminiLLMService:
                         "sql_length": len(sql),
                     },
                 )
-                
+
                 result = GenerationResult(
                     sql=sql,
                     confidence=confidence,
@@ -297,7 +310,9 @@ class GeminiLLMService:
 
         # Extract text safely — handle None candidates gracefully
         if not response.candidates:
-            raise LLMResponseParseError("Gemini returned no candidates in the response.")
+            raise LLMResponseParseError(
+                "Gemini returned no candidates in the response."
+            )
 
         parts = response.candidates[0].content.parts
         if not parts:

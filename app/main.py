@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = get_settings()
     configure_logging(settings)
-    
+
     # Initialize SQLite databases with mock seed data
     try:
         init_databases()

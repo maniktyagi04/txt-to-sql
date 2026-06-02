@@ -19,7 +19,7 @@ from app.services.executor import (
     SQLTimeoutError,
 )
 from app.services.validator import SQLValidator
-from app.utils.config import Settings, get_settings
+from app.utils.config import get_settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,6 +29,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Dependency factories — cached per process via lru_cache
 # ---------------------------------------------------------------------------
+
 
 @lru_cache
 def get_sql_validator() -> SQLValidator:
@@ -44,6 +45,7 @@ def get_sql_executor() -> SQLExecutor:
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/execute",
@@ -81,35 +83,47 @@ async def execute_sql(
         )
 
     except SQLValidationError as exc:
-        logger.warning("api_execute_validation_failed", extra={"error": str(exc), "sql": request.sql})
+        logger.warning(
+            "api_execute_validation_failed",
+            extra={"error": str(exc), "sql": request.sql},
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"SQL Validation Failed: {exc}",
         ) from exc
 
     except SQLSecurityError as exc:
-        logger.error("api_execute_security_violation", extra={"error": str(exc), "sql": request.sql})
+        logger.error(
+            "api_execute_security_violation",
+            extra={"error": str(exc), "sql": request.sql},
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"SQL Security Violation: {exc}",
         ) from exc
 
     except SQLTimeoutError as exc:
-        logger.error("api_execute_timeout", extra={"error": str(exc), "sql": request.sql})
+        logger.error(
+            "api_execute_timeout", extra={"error": str(exc), "sql": request.sql}
+        )
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=f"SQL Execution Timeout: {exc}",
         ) from exc
 
     except SQLExecutionError as exc:
-        logger.error("api_execute_database_error", extra={"error": str(exc), "sql": request.sql})
+        logger.error(
+            "api_execute_database_error", extra={"error": str(exc), "sql": request.sql}
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"SQL Execution Database Error: {exc}",
         ) from exc
 
     except Exception as exc:
-        logger.error("api_execute_unhandled_error", extra={"error": str(exc), "sql": request.sql})
+        logger.error(
+            "api_execute_unhandled_error", extra={"error": str(exc), "sql": request.sql}
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected internal database error occurred during execution.",

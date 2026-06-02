@@ -41,12 +41,18 @@ class SQLValidator:
             expression = sqlglot.parse_one(sql_query, read="postgres")
         except ParseError as exc:
             err_msg = f"SQL Syntax Error: {exc}"
-            logger.warning("sql_validation_syntax_error", extra={"sql": sql_query, "error": err_msg})
+            logger.warning(
+                "sql_validation_syntax_error",
+                extra={"sql": sql_query, "error": err_msg},
+            )
             errors.append(err_msg)
             return {"is_valid": False, "errors": errors}
         except Exception as exc:
             err_msg = f"SQL Parsing Failed: {exc}"
-            logger.warning("sql_validation_parsing_failed", extra={"sql": sql_query, "error": err_msg})
+            logger.warning(
+                "sql_validation_parsing_failed",
+                extra={"sql": sql_query, "error": err_msg},
+            )
             errors.append(err_msg)
             return {"is_valid": False, "errors": errors}
 
@@ -61,7 +67,7 @@ class SQLValidator:
         for table_node in expression.find_all(exp.Table):
             db = table_node.db
             name = table_node.name
-            
+
             # If the table is a CTE alias, skip physical schema check
             if name.lower() in ctes:
                 continue
@@ -78,14 +84,18 @@ class SQLValidator:
         if errors:
             logger.warning(
                 "sql_validation_table_error",
-                extra={"sql": sql_query, "errors": errors, "tables_checked": [t[0] for t in tables_in_query]},
+                extra={
+                    "sql": sql_query,
+                    "errors": errors,
+                    "tables_checked": [t[0] for t in tables_in_query],
+                },
             )
             return {"is_valid": False, "errors": errors}
 
         # 3. Column & Semantic Reference Validation
         # qualify() checks for ambiguous references, column existence, and aliases resolution
         try:
-            qualify(expression, schema=schema)
+            qualify(expression, schema=schema)  # type: ignore[arg-type]
         except OptimizeError as exc:
             err_msg = f"SQL Semantic Error: {exc}"
             errors.append(err_msg)
@@ -94,7 +104,10 @@ class SQLValidator:
             errors.append(err_msg)
 
         if errors:
-            logger.warning("sql_validation_semantic_error", extra={"sql": sql_query, "errors": errors})
+            logger.warning(
+                "sql_validation_semantic_error",
+                extra={"sql": sql_query, "errors": errors},
+            )
             return {"is_valid": False, "errors": errors}
 
         logger.info("sql_validation_succeeded", extra={"sql_length": len(sql_query)})
@@ -111,31 +124,36 @@ class SQLValidator:
 
         schema_path = Path(self.settings.schema_metadata_path)
         if not schema_path.exists():
-            logger.warning("validator_schema_file_missing", extra={"path": str(schema_path)})
+            logger.warning(
+                "validator_schema_file_missing", extra={"path": str(schema_path)}
+            )
             self._schema_mapping = {}
             return self._schema_mapping
 
         try:
             raw_data = json.loads(schema_path.read_text(encoding="utf-8"))
             tables = raw_data.get("tables", raw_data)
-            
+
             mapping: dict[str, dict[str, str]] = {}
             for t in tables:
                 table_name = t["table_name"]
                 columns = t["columns"]
-                
+
                 # SQLGlot expects column types (e.g. "VARCHAR") for qualification
                 col_map = {col.lower(): "VARCHAR" for col in columns}
-                
+
                 # Map fully qualified lowercase table name
                 mapping[table_name.lower()] = col_map
-                
+
                 # Map base lowercase table name
                 base_name = table_name.split(".")[-1]
                 mapping[base_name.lower()] = col_map
 
             self._schema_mapping = mapping
-            logger.info("validator_schema_mapping_loaded", extra={"table_count": len(self._schema_mapping)})
+            logger.info(
+                "validator_schema_mapping_loaded",
+                extra={"table_count": len(self._schema_mapping)},
+            )
             return self._schema_mapping
         except Exception as exc:
             logger.error("validator_schema_loading_failed", extra={"error": str(exc)})

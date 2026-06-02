@@ -10,7 +10,8 @@ Coverage:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
@@ -46,6 +47,7 @@ def validator(test_settings: Settings) -> SQLValidator:
 # SQLValidator Unit Tests
 # ---------------------------------------------------------------------------
 
+
 class TestSQLValidator:
 
     def test_valid_syntax_and_references(self, validator: SQLValidator):
@@ -72,7 +74,10 @@ class TestSQLValidator:
         sql = "SELECT order_id FROM analytics.ghost_table;"
         res = validator.validate(sql)
         assert res["is_valid"] is False
-        assert any("Table 'analytics.ghost_table' is not defined" in err for err in res["errors"])
+        assert any(
+            "Table 'analytics.ghost_table' is not defined" in err
+            for err in res["errors"]
+        )
 
     def test_cte_reference_succeeds(self, validator: SQLValidator):
         # CTEs shouldn't trigger "table not defined in schema" errors
@@ -91,7 +96,9 @@ class TestSQLValidator:
         sql = "SELECT clicks FROM analytics.sales_orders;"
         res = validator.validate(sql)
         assert res["is_valid"] is False
-        assert any("Semantic Error" in err or "Resolution" in err for err in res["errors"])
+        assert any(
+            "Semantic Error" in err or "Resolution" in err for err in res["errors"]
+        )
 
     def test_unqualified_ambiguous_column_fails(self, validator: SQLValidator):
         # customer_id is in both sales_orders and customers, so unqualified customer_id in SELECT is ambiguous
@@ -102,7 +109,10 @@ class TestSQLValidator:
         )
         res = validator.validate(sql)
         assert res["is_valid"] is False
-        assert any("ambiguous" in err.lower() or "Semantic Error" in err for err in res["errors"])
+        assert any(
+            "ambiguous" in err.lower() or "Semantic Error" in err
+            for err in res["errors"]
+        )
 
     def test_case_insensitivity(self, validator: SQLValidator):
         # Mixed casing in tables/columns should resolve fine
@@ -115,6 +125,7 @@ class TestSQLValidator:
 # ---------------------------------------------------------------------------
 # API Route Integration Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def client() -> TestClient:
@@ -136,21 +147,29 @@ class TestGenerateSQLEndpointWithValidator:
         )
 
         from app.routes.generation import get_llm_service, get_prompt_builder
+
         mock_llm = MagicMock()
         mock_llm.generate.return_value = mock_result
         mock_builder = MagicMock()
         mock_builder.build_prompt.return_value = "built prompt"
 
-        client.app.dependency_overrides[get_llm_service] = lambda: mock_llm
-        client.app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
+        app: Any = client.app
+        app.dependency_overrides[get_llm_service] = lambda: mock_llm
+        app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
 
         payload = {
             "question": "Show me orders in the West region.",
-            "retrieved_tables": [{"table_name": "analytics.sales_orders", "score": 0.9, "reason": "Match"}],
+            "retrieved_tables": [
+                {
+                    "table_name": "analytics.sales_orders",
+                    "score": 0.9,
+                    "reason": "Match",
+                }
+            ],
         }
 
         response = client.post("/generate-sql", json=payload)
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -169,24 +188,35 @@ class TestGenerateSQLEndpointWithValidator:
         )
 
         from app.routes.generation import get_llm_service, get_prompt_builder
+
         mock_llm = MagicMock()
         mock_llm.generate.return_value = mock_result
         mock_builder = MagicMock()
         mock_builder.build_prompt.return_value = "built prompt"
 
-        client.app.dependency_overrides[get_llm_service] = lambda: mock_llm
-        client.app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
+        app: Any = client.app
+        app.dependency_overrides[get_llm_service] = lambda: mock_llm
+        app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
 
         payload = {
             "question": "Show me invalid columns.",
-            "retrieved_tables": [{"table_name": "analytics.sales_orders", "score": 0.9, "reason": "Match"}],
+            "retrieved_tables": [
+                {
+                    "table_name": "analytics.sales_orders",
+                    "score": 0.9,
+                    "reason": "Match",
+                }
+            ],
         }
 
         response = client.post("/generate-sql", json=payload)
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         # The endpoint must intercept the invalid SQL and abort with 422 Unprocessable Entity
         assert response.status_code == 422
         data = response.json()
         assert "errors" in data
-        assert any("Failed" in err["message"] or "validation" in err["message"].lower() for err in data["errors"])
+        assert any(
+            "Failed" in err["message"] or "validation" in err["message"].lower()
+            for err in data["errors"]
+        )

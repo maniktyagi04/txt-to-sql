@@ -32,7 +32,9 @@ def _error_response(
             )
         ],
     )
-    return JSONResponse(status_code=http_status, content=response.model_dump(mode="json"))
+    return JSONResponse(
+        status_code=http_status, content=response.model_dump(mode="json")
+    )
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
@@ -88,6 +90,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_exception_handler)

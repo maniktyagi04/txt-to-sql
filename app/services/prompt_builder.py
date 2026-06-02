@@ -142,7 +142,9 @@ class SQLPromptBuilder:
         raw: dict[str, Any] = json.loads(schema_path.read_text(encoding="utf-8"))
         tables = raw.get("tables", raw)
         self._schema_index = {
-            SchemaTableMetadata.model_validate(t).table_name: SchemaTableMetadata.model_validate(t)
+            SchemaTableMetadata.model_validate(
+                t
+            ).table_name: SchemaTableMetadata.model_validate(t)
             for t in tables
         }
         logger.debug(
@@ -179,7 +181,9 @@ class SQLPromptBuilder:
         """Render tables in a structured, model-friendly block."""
         lines: list[str] = []
         for table in tables:
-            columns_str = ", ".join(table.columns) if table.columns else "(no columns listed)"
+            columns_str = (
+                ", ".join(table.columns) if table.columns else "(no columns listed)"
+            )
             tags_str = ", ".join(table.tags) if table.tags else "none"
             lines.append(
                 f"Table: {table.table_name}\n"

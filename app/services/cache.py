@@ -86,6 +86,7 @@ class RedisCache(BaseCache):
 
     def __init__(self, redis_url: str) -> None:
         import redis
+
         self._redis_url = redis_url
         # Connect with client-side timeout defaults to prevent connection lockups
         self._client = redis.from_url(
@@ -104,7 +105,9 @@ class RedisCache(BaseCache):
                 return None
             return json.loads(val)
         except Exception as exc:
-            logger.warning("redis_cache_get_failed", extra={"key": key, "error": str(exc)})
+            logger.warning(
+                "redis_cache_get_failed", extra={"key": key, "error": str(exc)}
+            )
             return None
 
     def set(self, key: str, value: Any, ttl_seconds: int | None = None) -> None:
@@ -115,13 +118,17 @@ class RedisCache(BaseCache):
             else:
                 self._client.set(key, serialized)
         except Exception as exc:
-            logger.warning("redis_cache_set_failed", extra={"key": key, "error": str(exc)})
+            logger.warning(
+                "redis_cache_set_failed", extra={"key": key, "error": str(exc)}
+            )
 
     def delete(self, key: str) -> None:
         try:
             self._client.delete(key)
         except Exception as exc:
-            logger.warning("redis_cache_delete_failed", extra={"key": key, "error": str(exc)})
+            logger.warning(
+                "redis_cache_delete_failed", extra={"key": key, "error": str(exc)}
+            )
 
     def clear(self) -> None:
         try:
@@ -132,6 +139,7 @@ class RedisCache(BaseCache):
 
 # Centralized factory for cache injection
 _cache_instance: BaseCache | None = None
+
 
 def get_cache(settings: Settings = get_settings()) -> BaseCache:
     """Returns the configured cache instance (Singleton pattern)."""

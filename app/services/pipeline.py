@@ -7,7 +7,6 @@ in a single call, providing structured per-stage results with full telemetry.
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 
@@ -38,26 +37,31 @@ logger = get_logger(__name__)
 
 class PipelineError(Exception):
     """Base class for pipeline orchestration errors."""
+
     pass
 
 
 class PipelineRetrievalError(PipelineError):
     """Raised when schema retrieval fails."""
+
     pass
 
 
 class PipelineGenerationError(PipelineError):
     """Raised when LLM SQL generation fails."""
+
     pass
 
 
 class PipelineValidationError(PipelineError):
     """Raised when SQL validation rejects the generated query."""
+
     pass
 
 
 class PipelineExecutionError(PipelineError):
     """Raised when SQL execution fails."""
+
     pass
 
 
@@ -232,7 +236,12 @@ class QueryPipeline:
                         "latency_ms": exec_result["execution_time_ms"],
                     },
                 )
-            except (SQLValidationError, SQLSecurityError, SQLTimeoutError, SQLExecutionError) as exc:
+            except (
+                SQLValidationError,
+                SQLSecurityError,
+                SQLTimeoutError,
+                SQLExecutionError,
+            ) as exc:
                 logger.error("pipeline_execution_failed", extra={"error": str(exc)})
                 raise PipelineExecutionError(f"SQL execution failed: {exc}") from exc
 

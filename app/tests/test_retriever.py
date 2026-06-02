@@ -1,4 +1,3 @@
-import os
 import json
 import pytest
 from pathlib import Path
@@ -7,17 +6,16 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.utils.config import get_settings, Settings
 from app.services.retriever import SchemaRetriever, EmbeddedSchemaTable
-from app.models.retrieval import RetrieveRequest, RetrieveResponse, TableRetrievalResult
 
 
 @pytest.fixture
 def test_settings(tmp_path: Path) -> Settings:
     """Fixture to provide test settings with isolated schema and embedding stores."""
     original_settings = get_settings()
-    
+
     # We will use the actual schema metadata, but isolate the embedding store JSON
     temp_embedding_store = tmp_path / "test_embeddings.json"
-    
+
     return Settings(
         app_name="Test Text-to-SQL API",
         app_version="0.1.0-test",
@@ -39,7 +37,9 @@ def retriever(test_settings: Settings) -> SchemaRetriever:
     return SchemaRetriever(test_settings)
 
 
-def test_schema_retriever_initialization(retriever: SchemaRetriever, test_settings: Settings):
+def test_schema_retriever_initialization(
+    retriever: SchemaRetriever, test_settings: Settings
+):
     """Test that SchemaRetriever initializes settings properly."""
     assert retriever.settings.app_name == "Test Text-to-SQL API"
     assert retriever.settings.environment == "test"
@@ -67,7 +67,9 @@ def test_schema_fingerprint(retriever: SchemaRetriever):
     assert len(fp1) == 64  # SHA-256 hex digest length
 
 
-def test_build_and_load_embedding_store(retriever: SchemaRetriever, test_settings: Settings):
+def test_build_and_load_embedding_store(
+    retriever: SchemaRetriever, test_settings: Settings
+):
     """Test that embedding store is built, stored, and then successfully loaded."""
     store_path = Path(test_settings.schema_embedding_store_path)
     assert not store_path.exists()
@@ -76,7 +78,9 @@ def test_build_and_load_embedding_store(retriever: SchemaRetriever, test_setting
     embedded_tables = retriever._load_or_build_embeddings()
     assert len(embedded_tables) > 0
     assert isinstance(embedded_tables[0], EmbeddedSchemaTable)
-    assert len(embedded_tables[0].embedding) == 384  # all-MiniLM-L6-v2 embedding dimension
+    assert (
+        len(embedded_tables[0].embedding) == 384
+    )  # all-MiniLM-L6-v2 embedding dimension
 
     # Verify JSON file was created
     assert store_path.exists()
@@ -94,17 +98,23 @@ def test_build_and_load_embedding_store(retriever: SchemaRetriever, test_setting
 def test_semantic_retrieval(retriever: SchemaRetriever):
     """Test semantic retrieval of relevant tables based on natural language questions."""
     # Question about sales should favor sales orders
-    sales_results = retriever.retrieve("What are the quarterly enterprise sales?", top_k=2)
+    sales_results = retriever.retrieve(
+        "What are the quarterly enterprise sales?", top_k=2
+    )
     assert len(sales_results) == 2
     assert sales_results[0].table_name == "analytics.sales_orders"
     assert sales_results[0].score > 0.0
     assert "sales" in sales_results[0].reason or "Quarter" in sales_results[0].reason
 
     # Question about support issues should favor support tickets
-    support_results = retriever.retrieve("Show all open customer support incidents with low response times", top_k=1)
+    support_results = retriever.retrieve(
+        "Show all open customer support incidents with low response times", top_k=1
+    )
     assert len(support_results) == 1
     assert support_results[0].table_name == "support.tickets"
-    assert "support" in support_results[0].reason or "tickets" in support_results[0].reason
+    assert (
+        "support" in support_results[0].reason or "tickets" in support_results[0].reason
+    )
 
 
 def test_confidence_score(retriever: SchemaRetriever):
@@ -112,7 +122,7 @@ def test_confidence_score(retriever: SchemaRetriever):
     results = retriever.retrieve("quarterly revenue report", top_k=2)
     conf = retriever.confidence_score(results)
     assert conf == results[0].score
-    
+
     assert retriever.confidence_score([]) == 0.0
 
 
@@ -128,26 +138,26 @@ def test_api_health():
 def test_api_retrieve_success(test_settings: Settings):
     """Test successful semantic schema retrieval via POST /retrieve."""
     app = create_app()
-    
+
     # Override settings in app dependency context
     from app.routes.retrieval import get_retriever
-    
+
     test_retriever = SchemaRetriever(test_settings)
     app.dependency_overrides[get_retriever] = lambda: test_retriever
 
     with TestClient(app) as client:
         payload = {
             "question": "What is the marketing channel campaign spend and conversions last month?",
-            "top_k": 3
+            "top_k": 3,
         }
         response = client.post("/retrieve", json=payload)
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "confidence_score" in data
         assert data["top_k"] == 3
         assert data["model_name"] == "all-MiniLM-L6-v2"
-        
+
         results = data["results"]
         assert len(results) == 3
         assert results[0]["table_name"] == "marketing.campaign_performance"
@@ -162,11 +172,13 @@ def test_api_retrieve_validation_errors():
         # Question too short (min length is 3)
         response = client.post("/retrieve", json={"question": "hi", "top_k": 2})
         assert response.status_code == 422
-        
+
         # Missing question
         response = client.post("/retrieve", json={"top_k": 2})
         assert response.status_code == 422
 
         # Invalid top_k
-        response = client.post("/retrieve", json={"question": "Valid question text", "top_k": -1})
+        response = client.post(
+            "/retrieve", json={"question": "Valid question text", "top_k": -1}
+        )
         assert response.status_code == 422

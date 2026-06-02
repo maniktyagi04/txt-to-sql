@@ -47,9 +47,7 @@ class QueryRequest(BaseModel):
 class RetrievalStage(BaseModel):
     """Retrieval stage output embedded in QueryResponse."""
 
-    tables: list[str] = Field(
-        ..., description="Ordered list of retrieved table names."
-    )
+    tables: list[str] = Field(..., description="Ordered list of retrieved table names.")
     confidence_score: float = Field(
         ..., ge=0.0, le=1.0, description="Top retrieval similarity score."
     )
@@ -101,7 +99,9 @@ class QueryResponse(BaseModel):
                     "confidence": 0.94,
                 },
                 "execution": {
-                    "rows": [{"campaign_name": "Spring Cloud Drive", "conversions": 320}],
+                    "rows": [
+                        {"campaign_name": "Spring Cloud Drive", "conversions": 320}
+                    ],
                     "columns": ["campaign_name", "conversions"],
                     "row_count": 1,
                     "execution_time_ms": 3.2,

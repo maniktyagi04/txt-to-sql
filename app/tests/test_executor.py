@@ -11,7 +11,6 @@ Coverage:
 
 from __future__ import annotations
 
-import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
@@ -40,6 +39,7 @@ def test_settings() -> Settings:
 @pytest.fixture
 def executor(test_settings: Settings) -> SQLExecutor:
     from app.database.init_db import init_databases
+
     # Initialize physical databases with mock data for isolated unit testing
     init_databases()
     return SQLExecutor(test_settings)
@@ -48,6 +48,7 @@ def executor(test_settings: Settings) -> SQLExecutor:
 # ---------------------------------------------------------------------------
 # SQLExecutor Unit Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 class TestSQLExecutor:
@@ -62,12 +63,12 @@ class TestSQLExecutor:
             "ORDER BY so.order_id LIMIT 2;"
         )
         res = await executor.execute_query(sql)
-        
+
         assert "rows" in res
         assert "columns" in res
         assert "row_count" in res
         assert "execution_time_ms" in res
-        
+
         assert res["columns"] == ["order_id", "account_name", "enterprise_sales_amount"]
         assert len(res["rows"]) > 0
         assert res["rows"][0]["order_id"] == 1
@@ -78,7 +79,7 @@ class TestSQLExecutor:
         # Valid query returning 0 rows
         sql = "SELECT * FROM analytics.products WHERE is_active = 0 AND category = 'Nonexistent';"
         res = await executor.execute_query(sql)
-        
+
         assert res["row_count"] == 0
         assert len(res["rows"]) == 0
         assert len(res["columns"]) > 0
@@ -96,14 +97,20 @@ class TestSQLExecutor:
         # We disable pre-validation to test that compile-time authorizer catches it!
         with pytest.raises(SQLSecurityError) as exc_info:
             await executor.execute_query(sql, validate=False)
-        assert "denied" in str(exc_info.value).lower() or "unauthorized" in str(exc_info.value).lower()
+        assert (
+            "denied" in str(exc_info.value).lower()
+            or "unauthorized" in str(exc_info.value).lower()
+        )
 
     async def test_authorizer_blocks_drop_table(self, executor: SQLExecutor):
         # Bypass validator and try to run DROP TABLE
         sql = "DROP TABLE analytics.sales_orders;"
         with pytest.raises(SQLSecurityError) as exc_info:
             await executor.execute_query(sql, validate=False)
-        assert "denied" in str(exc_info.value).lower() or "unauthorized" in str(exc_info.value).lower()
+        assert (
+            "denied" in str(exc_info.value).lower()
+            or "unauthorized" in str(exc_info.value).lower()
+        )
 
     async def test_execution_timeout(self, executor: SQLExecutor):
         # Force a timeout by setting a negative timeout
@@ -116,6 +123,7 @@ class TestSQLExecutor:
 # ---------------------------------------------------------------------------
 # API Route Integration Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def client():
@@ -130,7 +138,7 @@ class TestExecuteEndpoint:
     def test_api_execute_success(self, client: TestClient):
         payload = {
             "sql": "SELECT order_id, region, enterprise_sales_amount FROM analytics.sales_orders ORDER BY order_id LIMIT 1;",
-            "timeout_seconds": 3.0
+            "timeout_seconds": 3.0,
         }
         response = client.post("/execute", json=payload)
         assert response.status_code == 200
@@ -147,7 +155,7 @@ class TestExecuteEndpoint:
     def test_api_execute_validation_failure(self, client: TestClient):
         payload = {
             "sql": "SELECT invalid_col FROM analytics.sales_orders;",
-            "timeout_seconds": 3.0
+            "timeout_seconds": 3.0,
         }
         response = client.post("/execute", json=payload)
         # Should return HTTP 422 Unprocessable Content due to validator gate failure
@@ -162,7 +170,7 @@ class TestExecuteEndpoint:
         # But compile-time authorizer in executor will block it and return 403 Forbidden!
         payload = {
             "sql": "INSERT INTO analytics.sales_orders (order_id) VALUES (999);",
-            "timeout_seconds": 3.0
+            "timeout_seconds": 3.0,
         }
         response = client.post("/execute", json=payload)
         assert response.status_code == 403
@@ -172,11 +180,17 @@ class TestExecuteEndpoint:
 
     def test_api_execute_timeout(self, client: TestClient):
         from unittest.mock import patch
+
         # Mock executor timeout using a valid timeout payload
-        with patch("app.routes.execution.SQLExecutor.execute_query", side_effect=SQLTimeoutError("Database query execution exceeded timeout limit.")):
+        with patch(
+            "app.routes.execution.SQLExecutor.execute_query",
+            side_effect=SQLTimeoutError(
+                "Database query execution exceeded timeout limit."
+            ),
+        ):
             payload = {
                 "sql": "SELECT * FROM analytics.sales_orders;",
-                "timeout_seconds": 3.0
+                "timeout_seconds": 3.0,
             }
             response = client.post("/execute", json=payload)
             # Should return HTTP 504 Gateway Timeout

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.retrieval import SchemaTableMetadata, TableRetrievalResult
+from app.services.cache import BaseCache
 from app.utils.config import Settings
 from app.utils.logging import get_logger
 
@@ -42,7 +43,9 @@ class SchemaRetriever:
         self._model: Any | None = None
         self._embedded_tables: list[EmbeddedSchemaTable] | None = None
 
-    def retrieve(self, question: str, top_k: int | None = None) -> list[TableRetrievalResult]:
+    def retrieve(
+        self, question: str, top_k: int | None = None
+    ) -> list[TableRetrievalResult]:
         selected_top_k = self._normalize_top_k(top_k)
 
         # Check cache if available
@@ -50,9 +53,17 @@ class SchemaRetriever:
             cache_key = BaseCache.generate_key("retrieve", question, selected_top_k)
             cached_data = self.cache.get(cache_key)
             if cached_data is not None:
-                logger.info("schema_retrieval_cache_hit", extra={"question": question, "top_k": selected_top_k})
-                return [TableRetrievalResult.model_validate(item) for item in cached_data]
-            logger.info("schema_retrieval_cache_miss", extra={"question": question, "top_k": selected_top_k})
+                logger.info(
+                    "schema_retrieval_cache_hit",
+                    extra={"question": question, "top_k": selected_top_k},
+                )
+                return [
+                    TableRetrievalResult.model_validate(item) for item in cached_data
+                ]
+            logger.info(
+                "schema_retrieval_cache_miss",
+                extra={"question": question, "top_k": selected_top_k},
+            )
 
         embedded_tables = self._load_or_build_embeddings()
 
@@ -156,7 +167,9 @@ class SchemaRetriever:
 
         return [SchemaTableMetadata.model_validate(table) for table in raw_tables]
 
-    def _load_embedding_store(self, embedding_store_path: Path) -> dict[str, Any] | None:
+    def _load_embedding_store(
+        self, embedding_store_path: Path
+    ) -> dict[str, Any] | None:
         if not embedding_store_path.exists():
             return None
 
@@ -194,7 +207,9 @@ class SchemaRetriever:
         for item in payload.get("tables", []):
             table = SchemaTableMetadata.model_validate(item["metadata"])
             embedding = [float(value) for value in item["embedding"]]
-            embedded_tables.append(EmbeddedSchemaTable(table=table, embedding=embedding))
+            embedded_tables.append(
+                EmbeddedSchemaTable(table=table, embedding=embedding)
+            )
         return embedded_tables
 
     def _build_embedding_store(
@@ -239,10 +254,7 @@ class SchemaRetriever:
     def _encode(self, documents: list[str]) -> list[list[float]]:
         model = self._load_model()
         embeddings = model.encode(documents, normalize_embeddings=True)
-        return [
-            [float(value) for value in embedding]
-            for embedding in embeddings
-        ]
+        return [[float(value) for value in embedding] for embedding in embeddings]
 
     def _load_model(self) -> Any:
         if self._model is not None:
@@ -286,7 +298,10 @@ class SchemaRetriever:
         return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
 
     def _cosine_similarity(self, left: list[float], right: list[float]) -> float:
-        numerator = sum(left_value * right_value for left_value, right_value in zip(left, right, strict=True))
+        numerator = sum(
+            left_value * right_value
+            for left_value, right_value in zip(left, right, strict=True)
+        )
         left_norm = math.sqrt(sum(value * value for value in left))
         right_norm = math.sqrt(sum(value * value for value in right))
 

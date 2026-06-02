@@ -23,21 +23,25 @@ logger = get_logger(__name__)
 
 class SQLExecutionError(Exception):
     """Base exception for all SQL execution failures."""
+
     pass
 
 
 class SQLValidationError(SQLExecutionError):
     """Raised when the query fails semantic or syntax validation before execution."""
+
     pass
 
 
 class SQLTimeoutError(SQLExecutionError):
     """Raised when a query execution exceeds the configured timeout threshold."""
+
     pass
 
 
 class SQLSecurityError(SQLExecutionError):
     """Raised when a query attempts to perform unauthorized database operations (DML/DDL)."""
+
     pass
 
 
@@ -51,7 +55,9 @@ class ExecutionResult(TypedDict):
 class SQLExecutor:
     """Service layer to safely execute read-only queries against SQLite databases."""
 
-    def __init__(self, settings: Settings, validator: SQLValidator | None = None) -> None:
+    def __init__(
+        self, settings: Settings, validator: SQLValidator | None = None
+    ) -> None:
         self.settings = settings
         self.validator = validator or SQLValidator(settings)
         # Database directory defaults to app/database
@@ -78,7 +84,7 @@ class SQLExecutor:
             self._execute_query_sync,
             sql_query=sql_query,
             timeout_seconds=timeout_seconds,
-            validate=validate
+            validate=validate,
         )
 
     def _execute_query_sync(
@@ -104,12 +110,17 @@ class SQLExecutor:
             validation = self.validator.validate(sql_query)
             if not validation["is_valid"]:
                 err_msg = f"SQL query failed validation: {validation['errors']}"
-                logger.warning("sql_execution_validation_blocked", extra={"sql": sql_query, "errors": validation["errors"]})
+                logger.warning(
+                    "sql_execution_validation_blocked",
+                    extra={"sql": sql_query, "errors": validation["errors"]},
+                )
                 raise SQLValidationError(err_msg)
 
         # Ensure database directory and databases are present
         if not self.db_dir.exists():
-            raise SQLExecutionError("Database directory does not exist. Call init_databases first.")
+            raise SQLExecutionError(
+                "Database directory does not exist. Call init_databases first."
+            )
 
         # 2. Establish connection and attach schemas
         # We start with an in-memory db as anchor, and attach analytics, support, and marketing databases.
@@ -121,18 +132,30 @@ class SQLExecutor:
             for schema in ("analytics", "support", "marketing"):
                 db_file = self.db_dir / f"{schema}.db"
                 if not db_file.exists():
-                    raise SQLExecutionError(f"Database schema file '{db_file}' is missing. Initialize first.")
-                
+                    raise SQLExecutionError(
+                        f"Database schema file '{db_file}' is missing. Initialize first."
+                    )
+
                 # Attach database as the schema identifier
                 conn.execute(f"ATTACH DATABASE '{db_file}' AS {schema};")
 
             # 3. Security Authorizer Injection
             # Compile-time protection denying DML/DDL operations
-            def sqlite_authorizer(action_code: int, arg1: str | None, arg2: str | None, db_name: str | None, trigger_name: str | None) -> int:
+            def sqlite_authorizer(
+                action_code: int,
+                arg1: str | None,
+                arg2: str | None,
+                db_name: str | None,
+                trigger_name: str | None,
+            ) -> int:
                 # Allowed actions for read-only query compiler
-                if action_code in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION):
+                if action_code in (
+                    sqlite3.SQLITE_SELECT,
+                    sqlite3.SQLITE_READ,
+                    sqlite3.SQLITE_FUNCTION,
+                ):
                     return sqlite3.SQLITE_OK
-                
+
                 logger.warning(
                     "sql_execution_authorization_denied",
                     extra={
@@ -141,7 +164,7 @@ class SQLExecutor:
                         "arg2": arg2,
                         "db_name": db_name,
                         "sql": sql_query,
-                    }
+                    },
                 )
                 return sqlite3.SQLITE_DENY
 
@@ -162,17 +185,19 @@ class SQLExecutor:
 
             # 5. Execute query
             cursor.execute(sql_query)
-            
+
             # Fetch results
             raw_rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-            
+            columns = (
+                [desc[0] for desc in cursor.description] if cursor.description else []
+            )
+
             # Format row output as list of dicts mapping column keys to values
             rows = [dict(zip(columns, row)) for row in raw_rows]
             row_count = len(rows)
 
             latency_ms = (time.perf_counter() - start_time) * 1000.0
-            
+
             logger.info(
                 "sql_execution_success",
                 extra={
@@ -193,20 +218,32 @@ class SQLExecutor:
             # OperationalError with "interrupted" is raised by progress_handler timeout abort
             exc_str = str(exc)
             latency_ms = (time.perf_counter() - start_time) * 1000.0
-            
+
             if "interrupted" in exc_str or "abort" in exc_str:
                 logger.error(
                     "sql_execution_timeout",
-                    extra={"error": exc_str, "sql": sql_query, "latency_ms": latency_ms},
+                    extra={
+                        "error": exc_str,
+                        "sql": sql_query,
+                        "latency_ms": latency_ms,
+                    },
                 )
-                raise SQLTimeoutError(f"Database query execution exceeded timeout limit of {timeout_seconds}s.") from exc
-            
+                raise SQLTimeoutError(
+                    f"Database query execution exceeded timeout limit of {timeout_seconds}s."
+                ) from exc
+
             if "not authorized" in exc_str or "authorizer" in exc_str:
                 logger.error(
                     "sql_execution_security_violation",
-                    extra={"error": exc_str, "sql": sql_query, "latency_ms": latency_ms},
+                    extra={
+                        "error": exc_str,
+                        "sql": sql_query,
+                        "latency_ms": latency_ms,
+                    },
                 )
-                raise SQLSecurityError("Query execution denied: destructive or unauthorized operation detected.") from exc
+                raise SQLSecurityError(
+                    "Query execution denied: destructive or unauthorized operation detected."
+                ) from exc
 
             logger.error(
                 "sql_execution_database_error",

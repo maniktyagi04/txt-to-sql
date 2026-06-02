@@ -8,7 +8,8 @@ Coverage:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,7 +30,6 @@ from app.services.llm_service import (
 )
 from app.services.executor import SQLTimeoutError
 from app.utils.config import get_settings
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -116,6 +116,7 @@ def _make_pipeline(
 # QueryPipeline Unit Tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 class TestQueryPipeline:
 
@@ -191,6 +192,7 @@ class TestQueryPipeline:
 # POST /query API Integration Tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def client():
     app = create_app()
@@ -220,7 +222,8 @@ class TestQueryEndpoint:
         )
         mock_pipeline.run = AsyncMock(return_value=mock_result)
 
-        client.app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
+        app: Any = client.app
+        app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
         payload = {
             "question": "Which campaigns had the most conversions?",
@@ -228,7 +231,7 @@ class TestQueryEndpoint:
             "timeout_seconds": 5.0,
         }
         response = client.post("/query", json=payload)
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -257,11 +260,12 @@ class TestQueryEndpoint:
         mock_result.execution = None
         mock_pipeline.run = AsyncMock(return_value=mock_result)
 
-        client.app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
+        app: Any = client.app
+        app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
         payload = {"question": "Sales by region?", "execute": False}
         response = client.post("/query", json=payload)
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -274,12 +278,15 @@ class TestQueryEndpoint:
 
         mock_pipeline = MagicMock()
         mock_pipeline.run = AsyncMock(
-            side_effect=PipelineValidationError("Column ghost_col could not be resolved.")
+            side_effect=PipelineValidationError(
+                "Column ghost_col could not be resolved."
+            )
         )
-        client.app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
+        app: Any = client.app
+        app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
         response = client.post("/query", json={"question": "Show me ghost_col values."})
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 422
 
@@ -291,10 +298,11 @@ class TestQueryEndpoint:
         mock_pipeline.run = AsyncMock(
             side_effect=PipelineGenerationError("LLM unavailable: No API key.")
         )
-        client.app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
+        app: Any = client.app
+        app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
         response = client.post("/query", json={"question": "Total sales last quarter?"})
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 503
 
@@ -306,10 +314,11 @@ class TestQueryEndpoint:
         mock_pipeline.run = AsyncMock(
             side_effect=PipelineExecutionError("Database error occurred.")
         )
-        client.app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
+        app: Any = client.app
+        app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
         response = client.post("/query", json={"question": "Total sales last quarter?"})
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 400
 

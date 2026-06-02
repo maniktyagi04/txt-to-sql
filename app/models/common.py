@@ -18,19 +18,21 @@ class ErrorResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    model_config = ConfigDict(json_schema_extra={
-        "example": {
-            "request_id": "req_123",
-            "status": "failed",
-            "errors": [
-                {
-                    "code": "INTERNAL_SERVER_ERROR",
-                    "message": "An unexpected error occurred.",
-                    "field": None,
-                    "details": None,
-                }
-            ],
-            "warnings": [],
-            "timestamp": "2026-06-02T00:00:00Z",
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "request_id": "req_123",
+                "status": "failed",
+                "errors": [
+                    {
+                        "code": "INTERNAL_SERVER_ERROR",
+                        "message": "An unexpected error occurred.",
+                        "field": None,
+                        "details": None,
+                    }
+                ],
+                "warnings": [],
+                "timestamp": "2026-06-02T00:00:00Z",
+            }
         }
-    })
+    )

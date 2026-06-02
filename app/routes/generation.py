@@ -25,6 +25,7 @@ router = APIRouter()
 # Dependency factories — cached per process via lru_cache
 # ---------------------------------------------------------------------------
 
+
 @lru_cache
 def get_prompt_builder() -> SQLPromptBuilder:
     return SQLPromptBuilder(get_settings())
@@ -43,6 +44,7 @@ def get_sql_validator() -> SQLValidator:
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/generate-sql",
@@ -140,4 +142,3 @@ async def generate_sql(
     )
 
     return GenerateSQLResponse(sql=result.sql, confidence=result.confidence)
-

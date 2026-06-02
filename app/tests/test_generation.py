@@ -10,7 +10,7 @@ Coverage:
 
 from __future__ import annotations
 
-import json
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,10 +29,10 @@ from app.services.llm_service import (
 from app.services.prompt_builder import SQLPromptBuilder
 from app.utils.config import Settings, get_settings
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def test_settings() -> Settings:
@@ -69,12 +69,12 @@ def sales_tables() -> list[TableRetrievalResult]:
         TableRetrievalResult(
             table_name="analytics.sales_orders",
             score=0.91,
-            reason="Matched sales, region, revenue."
+            reason="Matched sales, region, revenue.",
         ),
         TableRetrievalResult(
             table_name="analytics.calendar",
             score=0.78,
-            reason="Matched quarter, fiscal terms."
+            reason="Matched quarter, fiscal terms.",
         ),
     ]
 
@@ -82,6 +82,7 @@ def sales_tables() -> list[TableRetrievalResult]:
 # ---------------------------------------------------------------------------
 # SQLPromptBuilder tests
 # ---------------------------------------------------------------------------
+
 
 class TestSQLPromptBuilder:
 
@@ -105,14 +106,20 @@ class TestSQLPromptBuilder:
         assert "enterprise_sales_amount" in sales.columns
 
     def test_fallback_stub_for_unknown_table(self, prompt_builder: SQLPromptBuilder):
-        unknown = [TableRetrievalResult(table_name="unknown.ghost_table", score=0.5, reason="N/A")]
+        unknown = [
+            TableRetrievalResult(
+                table_name="unknown.ghost_table", score=0.5, reason="N/A"
+            )
+        ]
         index = prompt_builder._load_schema_index()
         enriched = prompt_builder._enrich_tables(unknown, index)
         assert len(enriched) == 1
         assert enriched[0].table_name == "unknown.ghost_table"
         assert enriched[0].columns == []
 
-    def test_format_schema_block_contains_table_info(self, prompt_builder: SQLPromptBuilder, sales_tables: list[TableRetrievalResult]):
+    def test_format_schema_block_contains_table_info(
+        self, prompt_builder: SQLPromptBuilder, sales_tables: list[TableRetrievalResult]
+    ):
         index = prompt_builder._load_schema_index()
         enriched = prompt_builder._enrich_tables(sales_tables, index)
         block = prompt_builder._format_schema_block(enriched)
@@ -121,7 +128,9 @@ class TestSQLPromptBuilder:
         assert "analytics.calendar" in block
         assert "fiscal_quarter" in block
 
-    def test_format_examples_block_has_three_examples(self, prompt_builder: SQLPromptBuilder):
+    def test_format_examples_block_has_three_examples(
+        self, prompt_builder: SQLPromptBuilder
+    ):
         block = prompt_builder._format_examples_block()
         assert "Example 1:" in block
         assert "Example 2:" in block
@@ -132,7 +141,9 @@ class TestSQLPromptBuilder:
         self, prompt_builder: SQLPromptBuilder, sales_tables: list[TableRetrievalResult]
     ):
         question = "What is the total revenue by region last quarter?"
-        prompt = prompt_builder.build_prompt(question=question, retrieved_tables=sales_tables)
+        prompt = prompt_builder.build_prompt(
+            question=question, retrieved_tables=sales_tables
+        )
         assert question in prompt
         assert "analytics.sales_orders" in prompt
         assert "Few-Shot Examples" in prompt
@@ -143,6 +154,7 @@ class TestSQLPromptBuilder:
 # ---------------------------------------------------------------------------
 # _parse_response tests
 # ---------------------------------------------------------------------------
+
 
 class TestParseResponse:
 
@@ -189,13 +201,16 @@ class TestParseResponse:
 
     def test_raises_on_non_numeric_confidence(self):
         raw = '{"sql": "SELECT 6", "confidence": "bad"}'
-        with pytest.raises(LLMResponseParseError, match="'confidence' field is not numeric"):
+        with pytest.raises(
+            LLMResponseParseError, match="'confidence' field is not numeric"
+        ):
             _parse_response(raw)
 
 
 # ---------------------------------------------------------------------------
 # GeminiLLMService tests  (all Gemini API calls are mocked)
 # ---------------------------------------------------------------------------
+
 
 class TestGeminiLLMService:
 
@@ -211,8 +226,12 @@ class TestGeminiLLMService:
         client.generate_content.return_value = response
         return client
 
-    def test_generate_returns_result_on_first_attempt(self, llm_service: GeminiLLMService):
-        good_json = '{"sql": "SELECT region FROM analytics.sales_orders", "confidence": 0.91}'
+    def test_generate_returns_result_on_first_attempt(
+        self, llm_service: GeminiLLMService
+    ):
+        good_json = (
+            '{"sql": "SELECT region FROM analytics.sales_orders", "confidence": 0.91}'
+        )
         mock_client = self._make_mock_client(good_json)
         llm_service._client = mock_client
 
@@ -223,16 +242,24 @@ class TestGeminiLLMService:
         assert result.attempt == 1
         assert result.latency_ms > 0
 
-    def test_generate_retries_on_parse_error_then_succeeds(self, llm_service: GeminiLLMService):
+    def test_generate_retries_on_parse_error_then_succeeds(
+        self, llm_service: GeminiLLMService
+    ):
         good_json = '{"sql": "SELECT 1", "confidence": 0.85}'
-        bad_part = MagicMock(); bad_part.text = "not json at all"
-        good_part = MagicMock(); good_part.text = good_json
+        bad_part = MagicMock()
+        bad_part.text = "not json at all"
+        good_part = MagicMock()
+        good_part.text = good_json
 
-        bad_candidate = MagicMock(); bad_candidate.content.parts = [bad_part]
-        good_candidate = MagicMock(); good_candidate.content.parts = [good_part]
+        bad_candidate = MagicMock()
+        bad_candidate.content.parts = [bad_part]
+        good_candidate = MagicMock()
+        good_candidate.content.parts = [good_part]
 
-        bad_response = MagicMock(); bad_response.candidates = [bad_candidate]
-        good_response = MagicMock(); good_response.candidates = [good_candidate]
+        bad_response = MagicMock()
+        bad_response.candidates = [bad_candidate]
+        good_response = MagicMock()
+        good_response.candidates = [good_candidate]
 
         mock_client = MagicMock()
         mock_client.generate_content.side_effect = [bad_response, good_response]
@@ -244,10 +271,15 @@ class TestGeminiLLMService:
         assert result.sql == "SELECT 1"
         assert result.attempt == 2
 
-    def test_generate_raises_max_retries_when_always_failing(self, llm_service: GeminiLLMService):
-        bad_part = MagicMock(); bad_part.text = "not json"
-        bad_candidate = MagicMock(); bad_candidate.content.parts = [bad_part]
-        bad_response = MagicMock(); bad_response.candidates = [bad_candidate]
+    def test_generate_raises_max_retries_when_always_failing(
+        self, llm_service: GeminiLLMService
+    ):
+        bad_part = MagicMock()
+        bad_part.text = "not json"
+        bad_candidate = MagicMock()
+        bad_candidate.content.parts = [bad_part]
+        bad_response = MagicMock()
+        bad_response.candidates = [bad_candidate]
 
         mock_client = MagicMock()
         mock_client.generate_content.return_value = bad_response
@@ -271,6 +303,7 @@ class TestGeminiLLMService:
 # POST /generate-sql endpoint integration tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def client() -> TestClient:
     app = create_app()
@@ -281,8 +314,16 @@ def _make_valid_payload(top_k: int = 2) -> dict:
     return {
         "question": "What is the total sales amount by region this quarter?",
         "retrieved_tables": [
-            {"table_name": "analytics.sales_orders", "score": 0.91, "reason": "Matched sales."},
-            {"table_name": "analytics.calendar", "score": 0.78, "reason": "Matched quarter."},
+            {
+                "table_name": "analytics.sales_orders",
+                "score": 0.91,
+                "reason": "Matched sales.",
+            },
+            {
+                "table_name": "analytics.calendar",
+                "score": 0.78,
+                "reason": "Matched quarter.",
+            },
         ][:top_k],
     }
 
@@ -300,16 +341,18 @@ class TestGenerateSQLEndpoint:
         )
 
         from app.routes.generation import get_llm_service, get_prompt_builder
+
         mock_llm = MagicMock()
         mock_llm.generate.return_value = mock_result
         mock_builder = MagicMock()
         mock_builder.build_prompt.return_value = "built prompt"
 
-        client.app.dependency_overrides[get_llm_service] = lambda: mock_llm
-        client.app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
+        app: Any = client.app
+        app.dependency_overrides[get_llm_service] = lambda: mock_llm
+        app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
 
         response = client.post("/generate-sql", json=_make_valid_payload())
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -329,33 +372,41 @@ class TestGenerateSQLEndpoint:
 
     def test_returns_503_when_llm_unavailable(self, client: TestClient):
         from app.routes.generation import get_llm_service
+
         mock_llm = MagicMock()
         mock_llm.generate.side_effect = LLMUnavailableError("No API key")
-        client.app.dependency_overrides[get_llm_service] = lambda: mock_llm
+        app: Any = client.app
+        app.dependency_overrides[get_llm_service] = lambda: mock_llm
 
         response = client.post("/generate-sql", json=_make_valid_payload())
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 503
 
     def test_returns_503_when_max_retries_exceeded(self, client: TestClient):
         from app.routes.generation import get_llm_service
+
         mock_llm = MagicMock()
-        mock_llm.generate.side_effect = LLMMaxRetriesExceededError("All attempts failed")
-        client.app.dependency_overrides[get_llm_service] = lambda: mock_llm
+        mock_llm.generate.side_effect = LLMMaxRetriesExceededError(
+            "All attempts failed"
+        )
+        app: Any = client.app
+        app.dependency_overrides[get_llm_service] = lambda: mock_llm
 
         response = client.post("/generate-sql", json=_make_valid_payload())
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 503
 
     def test_returns_500_when_parse_error(self, client: TestClient):
         from app.routes.generation import get_llm_service
+
         mock_llm = MagicMock()
         mock_llm.generate.side_effect = LLMResponseParseError("Bad JSON")
-        client.app.dependency_overrides[get_llm_service] = lambda: mock_llm
+        app: Any = client.app
+        app.dependency_overrides[get_llm_service] = lambda: mock_llm
 
         response = client.post("/generate-sql", json=_make_valid_payload())
-        client.app.dependency_overrides.clear()
+        app.dependency_overrides.clear()
 
         assert response.status_code == 500

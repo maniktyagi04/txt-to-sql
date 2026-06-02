@@ -9,19 +9,19 @@ Covers:
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI, status
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.services.cache import InMemoryCache, get_cache
-from app.utils.config import Settings, get_settings
-
+from app.utils.config import Settings
 
 # ---------------------------------------------------------------------------
 # Caching Service Tests
 # ---------------------------------------------------------------------------
+
 
 def test_in_memory_cache_operations():
     cache = InMemoryCache()
@@ -64,6 +64,7 @@ def test_generate_key():
 # ---------------------------------------------------------------------------
 # Middleware Integration Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def test_app():
