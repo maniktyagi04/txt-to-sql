@@ -21,6 +21,14 @@ class Settings(BaseModel):
     log_level: LogLevel = Field(default="INFO")
     log_format: Literal["json", "plain"] = Field(default="json")
 
+    embedding_model_name: str = Field(default="all-MiniLM-L6-v2")
+    schema_metadata_path: str = Field(default="app/database/schema_metadata.json")
+    schema_embedding_store_path: str = Field(
+        default="app/database/embeddings/schema_embeddings.json"
+    )
+    default_retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    max_retrieval_top_k: int = Field(default=25, ge=1, le=100)
+
 
 def _get_bool_env(name: str, default: bool) -> bool:
     value = getenv(name)
@@ -41,4 +49,15 @@ def get_settings() -> Settings:
         openapi_url=getenv("OPENAPI_URL", "/openapi.json"),
         log_level=getenv("LOG_LEVEL", "INFO").upper(),
         log_format=getenv("LOG_FORMAT", "json").lower(),
+        embedding_model_name=getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"),
+        schema_metadata_path=getenv(
+            "SCHEMA_METADATA_PATH",
+            "app/database/schema_metadata.json",
+        ),
+        schema_embedding_store_path=getenv(
+            "SCHEMA_EMBEDDING_STORE_PATH",
+            "app/database/embeddings/schema_embeddings.json",
+        ),
+        default_retrieval_top_k=int(getenv("DEFAULT_RETRIEVAL_TOP_K", "5")),
+        max_retrieval_top_k=int(getenv("MAX_RETRIEVAL_TOP_K", "25")),
     )

@@ -1,0 +1,95 @@
+{
+  "tables": [
+    {
+      "table_name": "analytics.sales_orders",
+      "description": "Order-level sales facts including enterprise sales amount, region, customer, order date, discount, and product identifiers.",
+      "columns": [
+        "order_id",
+        "customer_id",
+        "product_id",
+        "order_date",
+        "region",
+        "enterprise_sales_amount",
+        "discount_amount",
+        "order_status"
+      ],
+      "tags": ["sales", "orders", "revenue", "region", "enterprise"]
+    },
+    {
+      "table_name": "analytics.customers",
+      "description": "Customer dimension with account attributes, lifecycle stage, industry, geography, and segmentation fields.",
+      "columns": [
+        "customer_id",
+        "account_name",
+        "industry",
+        "segment",
+        "country",
+        "region",
+        "created_at",
+        "lifecycle_stage"
+      ],
+      "tags": ["customers", "accounts", "segments", "industry"]
+    },
+    {
+      "table_name": "analytics.products",
+      "description": "Product catalog dimension with product hierarchy, category, SKU, launch date, and active status.",
+      "columns": [
+        "product_id",
+        "sku",
+        "product_name",
+        "category",
+        "subcategory",
+        "launch_date",
+        "is_active"
+      ],
+      "tags": ["products", "catalog", "sku", "category"]
+    },
+    {
+      "table_name": "analytics.calendar",
+      "description": "Date dimension for fiscal calendars, quarters, months, weeks, holidays, and relative reporting periods.",
+      "columns": [
+        "date_day",
+        "fiscal_year",
+        "fiscal_quarter",
+        "fiscal_month",
+        "week_start_date",
+        "is_holiday"
+      ],
+      "tags": ["calendar", "date", "time", "quarter", "month", "fiscal"]
+    },
+    {
+      "table_name": "support.tickets",
+      "description": "Support ticket facts with customer issue type, ticket status, priority, response time, resolution time, and satisfaction score.",
+      "columns": [
+        "ticket_id",
+        "customer_id",
+        "created_at",
+        "resolved_at",
+        "priority",
+        "status",
+        "issue_type",
+        "first_response_minutes",
+        "resolution_minutes",
+        "csat_score"
+      ],
+      "tags": ["support", "tickets", "priority", "resolution", "csat"]
+    },
+    {
+      "table_name": "marketing.campaign_performance",
+      "description": "Campaign performance metrics including channel, impressions, clicks, spend, leads, conversions, and campaign dates.",
+      "columns": [
+        "campaign_id",
+        "campaign_name",
+        "channel",
+        "start_date",
+        "end_date",
+        "impressions",
+        "clicks",
+        "spend",
+        "leads",
+        "conversions"
+      ],
+      "tags": ["marketing", "campaigns", "spend", "leads", "conversions"]
+    }
+  ]
+}
