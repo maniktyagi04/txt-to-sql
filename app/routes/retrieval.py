@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.models.retrieval import RetrieveRequest, RetrieveResponse
+from app.services.cache import get_cache
 from app.services.retriever import (
     EmbeddingModelUnavailableError,
     RetrieverError,
@@ -19,7 +20,7 @@ router = APIRouter()
 
 @lru_cache
 def get_retriever() -> SchemaRetriever:
-    return SchemaRetriever(get_settings())
+    return SchemaRetriever(get_settings(), get_cache())
 
 
 @router.post(

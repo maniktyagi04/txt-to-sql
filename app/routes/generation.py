@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.models.generation import GenerateSQLRequest, GenerateSQLResponse
+from app.services.cache import get_cache
 from app.services.prompt_builder import SQLPromptBuilder
 from app.services.llm_service import (
     GeminiLLMService,
@@ -31,7 +32,7 @@ def get_prompt_builder() -> SQLPromptBuilder:
 
 @lru_cache
 def get_llm_service() -> GeminiLLMService:
-    return GeminiLLMService(get_settings())
+    return GeminiLLMService(get_settings(), get_cache())
 
 
 @lru_cache

@@ -1,12 +1,18 @@
 import json
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
 from app.utils.config import Settings
 
+# Context variables for tracing logs back to specific request contexts
+request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+
 
 class JsonFormatter(logging.Formatter):
+    """Structured JSON formatter with automated trace/request-context injection."""
+
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -14,6 +20,11 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+
+        # Inject context-level tracers if present
+        request_id = request_id_var.get()
+        if request_id:
+            payload["request_id"] = request_id
 
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
@@ -51,6 +62,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging(settings: Settings) -> None:
+    """Configures system-wide standard logging structure."""
     root_logger = logging.getLogger()
     root_logger.setLevel(settings.log_level)
     root_logger.handlers.clear()
@@ -63,7 +75,7 @@ def configure_logging(settings: Settings) -> None:
     else:
         handler.setFormatter(
             logging.Formatter(
-                fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+                fmt="%(asctime)s %(levelname)s [%(name)s] [%(process)d] %(message)s",
                 datefmt="%Y-%m-%dT%H:%M:%S%z",
             )
         )
@@ -72,4 +84,5 @@ def configure_logging(settings: Settings) -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
+    """Returns a named logger."""
     return logging.getLogger(name)

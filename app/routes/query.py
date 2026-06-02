@@ -20,6 +20,7 @@ from app.services.pipeline import (
     PipelineValidationError,
     PipelineExecutionError,
 )
+from app.services.cache import get_cache
 from app.services.retriever import SchemaRetriever
 from app.services.prompt_builder import SQLPromptBuilder
 from app.services.llm_service import GeminiLLMService
@@ -38,7 +39,7 @@ router = APIRouter()
 
 @lru_cache
 def get_retriever() -> SchemaRetriever:
-    return SchemaRetriever(get_settings())
+    return SchemaRetriever(get_settings(), get_cache())
 
 
 @lru_cache
@@ -48,7 +49,7 @@ def get_prompt_builder() -> SQLPromptBuilder:
 
 @lru_cache
 def get_llm_service() -> GeminiLLMService:
-    return GeminiLLMService(get_settings())
+    return GeminiLLMService(get_settings(), get_cache())
 
 
 @lru_cache

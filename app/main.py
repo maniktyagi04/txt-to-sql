@@ -2,8 +2,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.database.init_db import init_databases
+from app.middleware import (
+    TraceAndLogMiddleware,
+    SecurityHeadersMiddleware,
+    RateLimitMiddleware,
+)
 from app.routes import api_router
 from app.utils.config import Settings, get_settings
 from app.utils.errors import register_exception_handlers
@@ -49,6 +55,24 @@ def create_app() -> FastAPI:
         openapi_url=settings.openapi_url,
         lifespan=lifespan,
     )
+
+    # 1. CORS Configuration Middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_hosts,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # 2. Hardening Security Headers Middleware
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # 3. Rate Limiting Middleware
+    app.add_middleware(RateLimitMiddleware)
+
+    # 4. Correlation / Logging Tracing Middleware (Executed first on incoming requests)
+    app.add_middleware(TraceAndLogMiddleware)
 
     register_exception_handlers(app)
     app.include_router(api_router)

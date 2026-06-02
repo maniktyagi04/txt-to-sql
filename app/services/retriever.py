@@ -36,13 +36,24 @@ class EmbeddedSchemaTable:
 
 
 class SchemaRetriever:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, cache: BaseCache | None = None) -> None:
         self.settings = settings
+        self.cache = cache
         self._model: Any | None = None
         self._embedded_tables: list[EmbeddedSchemaTable] | None = None
 
     def retrieve(self, question: str, top_k: int | None = None) -> list[TableRetrievalResult]:
         selected_top_k = self._normalize_top_k(top_k)
+
+        # Check cache if available
+        if self.cache:
+            cache_key = BaseCache.generate_key("retrieve", question, selected_top_k)
+            cached_data = self.cache.get(cache_key)
+            if cached_data is not None:
+                logger.info("schema_retrieval_cache_hit", extra={"question": question, "top_k": selected_top_k})
+                return [TableRetrievalResult.model_validate(item) for item in cached_data]
+            logger.info("schema_retrieval_cache_miss", extra={"question": question, "top_k": selected_top_k})
+
         embedded_tables = self._load_or_build_embeddings()
 
         if not embedded_tables:
@@ -76,6 +87,15 @@ class SchemaRetriever:
                 "confidence_score": results[0].score if results else 0.0,
             },
         )
+
+        if self.cache:
+            cache_key = BaseCache.generate_key("retrieve", question, selected_top_k)
+            self.cache.set(
+                cache_key,
+                [item.model_dump() for item in results],
+                ttl_seconds=self.settings.cache_ttl_seconds,
+            )
+
         return results
 
     def confidence_score(self, results: list[TableRetrievalResult]) -> float:

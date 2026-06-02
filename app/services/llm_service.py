@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any
 
+from app.services.cache import BaseCache
 from app.utils.config import Settings
 from app.utils.logging import get_logger
 
@@ -118,8 +119,9 @@ def _parse_response(raw: str) -> tuple[str, float]:
 class GeminiLLMService:
     """Wraps the google-generativeai SDK with retry logic, parsing, and logging."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, cache: BaseCache | None = None) -> None:
         self.settings = settings
+        self.cache = cache
         self._client: Any | None = None
 
     # ------------------------------------------------------------------
@@ -140,6 +142,21 @@ class GeminiLLMService:
             LLMMaxRetriesExceededError: If all retries are exhausted.
             LLMResponseParseError: If the final response cannot be parsed.
         """
+        # Check cache if available
+        if self.cache:
+            cache_key = BaseCache.generate_key("generate", prompt)
+            cached_data = self.cache.get(cache_key)
+            if cached_data is not None:
+                logger.info("llm_generation_cache_hit", extra={"model": self.settings.gemini_model_name})
+                return GenerationResult(
+                    sql=cached_data["sql"],
+                    confidence=cached_data["confidence"],
+                    raw_response=cached_data["raw_response"],
+                    latency_ms=cached_data["latency_ms"],
+                    attempt=cached_data["attempt"],
+                )
+            logger.info("llm_generation_cache_miss", extra={"model": self.settings.gemini_model_name})
+
         client = self._load_client()
         max_retries = self.settings.gemini_max_retries
         last_exc: Exception | None = None
@@ -162,13 +179,31 @@ class GeminiLLMService:
                         "sql_length": len(sql),
                     },
                 )
-                return GenerationResult(
+                
+                result = GenerationResult(
                     sql=sql,
                     confidence=confidence,
                     raw_response=raw,
                     latency_ms=latency_ms,
                     attempt=attempt,
                 )
+
+                # Cache the successful result
+                if self.cache:
+                    cache_key = BaseCache.generate_key("generate", prompt)
+                    self.cache.set(
+                        cache_key,
+                        {
+                            "sql": result.sql,
+                            "confidence": result.confidence,
+                            "raw_response": result.raw_response,
+                            "latency_ms": result.latency_ms,
+                            "attempt": result.attempt,
+                        },
+                        ttl_seconds=self.settings.cache_ttl_seconds,
+                    )
+
+                return result
 
             except LLMResponseParseError as exc:
                 latency_ms = (time.monotonic() - t_start) * 1_000
