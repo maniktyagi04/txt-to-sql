@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.database.init_db import init_databases
 from app.routes import api_router
 from app.utils.config import Settings, get_settings
 from app.utils.errors import register_exception_handlers
@@ -15,6 +16,15 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = get_settings()
     configure_logging(settings)
+    
+    # Initialize SQLite databases with mock seed data
+    try:
+        init_databases()
+        logger.info("sqlite_databases_setup_success")
+    except Exception as exc:
+        logger.critical("sqlite_databases_setup_failed", extra={"error": str(exc)})
+        raise exc
+
     logger.info(
         "application_starting",
         extra={
