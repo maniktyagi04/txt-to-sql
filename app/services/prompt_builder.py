@@ -16,44 +16,43 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 _FEW_SHOT_EXAMPLES: list[dict[str, str]] = [
     {
-        "question": "What is the total enterprise sales amount by region for the last quarter?",
-        "tables": "analytics.sales_orders (order_id, customer_id, product_id, order_date, region, enterprise_sales_amount, discount_amount, order_status)\nanalytics.calendar (date_day, fiscal_year, fiscal_quarter, fiscal_month, week_start_date, is_holiday)",
+        "question": "Show departments with highest enrollment",
+        "tables": "beaver.departments (department_id, department_name, headcount)\nbeaver.students (student_id, student_name, department_id, enrollment_year)\nbeaver.courses (course_id, course_name, department_id, course_type, credits)\nbeaver.enrollments (enrollment_id, student_id, course_id, grade)",
         "sql": (
-            "SELECT so.region, SUM(so.enterprise_sales_amount) AS total_sales "
-            "FROM analytics.sales_orders so "
-            "JOIN analytics.calendar c ON so.order_date = c.date_day "
-            "WHERE c.fiscal_quarter = CONCAT(EXTRACT(YEAR FROM CURRENT_DATE)::text, '-Q', "
-            "  EXTRACT(QUARTER FROM CURRENT_DATE - INTERVAL '3 months')::text) "
-            "GROUP BY so.region "
-            "ORDER BY total_sales DESC;"
-        ),
-        "confidence": "0.92",
-    },
-    {
-        "question": "Which marketing campaigns had the highest conversion rate last month?",
-        "tables": "marketing.campaign_performance (campaign_id, campaign_name, channel, start_date, end_date, impressions, clicks, spend, leads, conversions)",
-        "sql": (
-            "SELECT campaign_name, channel, "
-            "  ROUND(conversions::numeric / NULLIF(clicks, 0) * 100, 2) AS conversion_rate_pct "
-            "FROM marketing.campaign_performance "
-            "WHERE start_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') "
-            "  AND end_date <= DATE_TRUNC('month', CURRENT_DATE) "
-            "ORDER BY conversion_rate_pct DESC "
-            "LIMIT 10;"
-        ),
-        "confidence": "0.89",
-    },
-    {
-        "question": "How many high-priority support tickets were unresolved in the past 7 days?",
-        "tables": "support.tickets (ticket_id, customer_id, created_at, resolved_at, priority, status, issue_type, first_response_minutes, resolution_minutes, csat_score)",
-        "sql": (
-            "SELECT COUNT(*) AS unresolved_high_priority_tickets "
-            "FROM support.tickets "
-            "WHERE priority = 'high' "
-            "  AND status != 'resolved' "
-            "  AND created_at >= CURRENT_DATE - INTERVAL '7 days';"
+            "SELECT d.department_name, COUNT(e.student_id) AS enrollment_count "
+            "FROM beaver.departments d "
+            "JOIN beaver.courses c ON d.department_id = c.department_id "
+            "JOIN beaver.enrollments e ON c.course_id = e.course_id "
+            "GROUP BY d.department_name "
+            "ORDER BY enrollment_count DESC;"
         ),
         "confidence": "0.95",
+        "explanation": "This query joins departments to courses and then to enrollments to count the total student enrollments per department, sorted by enrollment count in descending order.",
+    },
+    {
+        "question": "List students enrolled in online courses",
+        "tables": "beaver.students (student_id, student_name, department_id, enrollment_year)\nbeaver.enrollments (enrollment_id, student_id, course_id, grade)\nbeaver.courses (course_id, course_name, department_id, course_type, credits)",
+        "sql": (
+            "SELECT DISTINCT s.student_name "
+            "FROM beaver.students s "
+            "JOIN beaver.enrollments e ON s.student_id = e.student_id "
+            "JOIN beaver.courses c ON e.course_id = c.course_id "
+            "WHERE c.course_type = 'Online';"
+        ),
+        "confidence": "0.98",
+        "explanation": "This query joins students, enrollments, and courses, filtering for courses where the type is 'Online' and returning distinct student names.",
+    },
+    {
+        "question": "Show courses offered by Computer Science",
+        "tables": "beaver.courses (course_id, course_name, department_id, course_type, credits)\nbeaver.departments (department_id, department_name, headcount)",
+        "sql": (
+            "SELECT c.course_name "
+            "FROM beaver.courses c "
+            "JOIN beaver.departments d ON c.department_id = d.department_id "
+            "WHERE d.department_name = 'Computer Science';"
+        ),
+        "confidence": "0.95",
+        "explanation": "This query joins courses and departments, filtering for the department named 'Computer Science' and returning course names.",
     },
 ]
 
@@ -71,7 +70,7 @@ Rules:
 - Include a LIMIT clause if the query could return unbounded rows.
 - Your entire response MUST be a single valid JSON object and nothing else.
 - The JSON must conform to this schema:
-  {"sql": "<your SQL here>", "confidence": <float between 0.0 and 1.0>}
+  {"sql": "<your SQL here>", "confidence": <float between 0.0 and 1.0>, "explanation": "<a clear, human-readable explanation of what this query calculates and how it is joined/filtered>"}
 - Confidence should reflect how well the schema context satisfies the question (0.0 = cannot answer, 1.0 = perfect match).
 - Do NOT wrap the JSON in markdown code fences or any other text.
 """
@@ -202,6 +201,6 @@ class SQLPromptBuilder:
                 f"  Question: {example['question']}\n"
                 f"  Available Tables:\n    {example['tables']}\n"
                 f"  Expected Output:\n"
-                f'    {{"sql": "{example["sql"]}", "confidence": {example["confidence"]}}}'
+                f'    {{"sql": "{example["sql"]}", "confidence": {example["confidence"]}, "explanation": "{example["explanation"]}"}}'
             )
         return "\n\n".join(lines)

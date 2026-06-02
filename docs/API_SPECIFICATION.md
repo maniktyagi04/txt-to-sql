@@ -1,5 +1,11 @@
 # Enterprise Text-to-SQL API Specification
 
+> **Implementation Scope:** This document describes the full target API contract and architecture.
+> The current implementation covers the core pipeline (retrieval, generation, validation,
+> execution, benchmarking) without multi-tenancy, authentication, or async job support.
+> All examples use the `beaver.*` academic schema. See `FINAL_SUBMISSION_REPORT.md` for
+> exact implementation scope.
+
 ## Overview
 
 The Enterprise Text-to-SQL API exposes schema retrieval, SQL generation, and benchmark execution endpoints. All endpoints require authentication and tenant-aware authorization.
@@ -311,7 +317,7 @@ Idempotency-Key: bench_01HXABC
   "baseline_run_id": "bench_run_previous",
   "config": {
     "schema_snapshot_id": "schema_snap_001",
-    "retrieval_strategy_version": "hybrid-v1",
+    "retrieval_strategy_version": "vector-cosine-v1",
     "prompt_template_version": "text-to-sql-v1",
     "validation_policy_version": "sql-safety-v1",
     "model_config": {

@@ -1,7 +1,7 @@
 """Database initialization and seeding module for the Text-to-SQL backend.
 
-Creates physical SQLite database files (analytics.db, support.db, marketing.db)
-matching the production-grade schema metadata and populates them with realistic seed data.
+Creates the physical SQLite database file (beaver.db) matching the Beaver
+academic schema metadata and populates it with realistic seed data.
 """
 
 from __future__ import annotations
@@ -18,460 +18,141 @@ def init_databases(database_dir: str | Path = "app/database") -> None:
     db_path = Path(database_dir)
     db_path.mkdir(parents=True, exist_ok=True)
 
-    # 1. Initialize analytics.db
-    analytics_db = db_path / "analytics.db"
-    init_analytics_db(analytics_db)
+    # 1. Initialize beaver.db
+    beaver_db = db_path / "beaver.db"
+    init_beaver_db(beaver_db)
 
-    # 2. Initialize support.db
-    support_db = db_path / "support.db"
-    init_support_db(support_db)
-
-    # 3. Initialize marketing.db
-    marketing_db = db_path / "marketing.db"
-    init_marketing_db(marketing_db)
+    # Clean up legacy db files if present to prevent confusion
+    for legacy in ("analytics.db", "support.db", "marketing.db"):
+        legacy_file = db_path / legacy
+        if legacy_file.exists():
+            try:
+                legacy_file.unlink()
+                logger.info("cleaned_up_legacy_database", extra={"file": legacy})
+            except Exception as exc:
+                logger.warning("legacy_cleanup_failed", extra={"file": legacy, "error": str(exc)})
 
     logger.info("sqlite_databases_initialized", extra={"db_dir": str(db_path)})
 
 
-def init_analytics_db(db_path: Path) -> None:
-    """Create tables and insert seed data for the analytics schema."""
+def init_beaver_db(db_path: Path) -> None:
+    """Create tables and insert seed data for the Beaver academic schema."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     try:
-        # Enable write time safety
+        # Enable foreign key constraints
         cursor.execute("PRAGMA foreign_keys = ON;")
 
-        # Create sales_orders
+        # Create departments
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sales_orders (
-                order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer_id TEXT NOT NULL,
-                product_id TEXT NOT NULL,
-                order_date TEXT NOT NULL,
-                region TEXT NOT NULL,
-                enterprise_sales_amount REAL NOT NULL,
-                discount_amount REAL NOT NULL,
-                order_status TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS departments (
+                department_id TEXT PRIMARY KEY,
+                department_name TEXT NOT NULL UNIQUE,
+                headcount INTEGER NOT NULL CHECK (headcount >= 0)
             );
             """)
 
-        # Create customers
+        # Create students
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS customers (
-                customer_id TEXT PRIMARY KEY,
-                account_name TEXT NOT NULL,
-                industry TEXT NOT NULL,
-                segment TEXT NOT NULL,
-                country TEXT NOT NULL,
-                region TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                lifecycle_stage TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS students (
+                student_id TEXT PRIMARY KEY,
+                student_name TEXT NOT NULL,
+                department_id TEXT NOT NULL,
+                enrollment_year INTEGER NOT NULL,
+                FOREIGN KEY (department_id) REFERENCES departments(department_id)
             );
             """)
 
-        # Create products
+        # Create courses
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS products (
-                product_id TEXT PRIMARY KEY,
-                sku TEXT NOT NULL UNIQUE,
-                product_name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                subcategory TEXT NOT NULL,
-                launch_date TEXT NOT NULL,
-                is_active INTEGER NOT NULL CHECK (is_active IN (0, 1))
+            CREATE TABLE IF NOT EXISTS courses (
+                course_id TEXT PRIMARY KEY,
+                course_name TEXT NOT NULL,
+                department_id TEXT NOT NULL,
+                course_type TEXT NOT NULL CHECK (course_type IN ('Online', 'In-Person')),
+                credits INTEGER NOT NULL CHECK (credits > 0),
+                FOREIGN KEY (department_id) REFERENCES departments(department_id)
             );
             """)
 
-        # Create calendar
+        # Create enrollments
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS calendar (
-                date_day TEXT PRIMARY KEY,
-                fiscal_year INTEGER NOT NULL,
-                fiscal_quarter TEXT NOT NULL,
-                fiscal_month TEXT NOT NULL,
-                week_start_date TEXT NOT NULL,
-                is_holiday INTEGER NOT NULL CHECK (is_holiday IN (0, 1))
+            CREATE TABLE IF NOT EXISTS enrollments (
+                enrollment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id TEXT NOT NULL,
+                course_id TEXT NOT NULL,
+                grade TEXT,
+                FOREIGN KEY (student_id) REFERENCES students(student_id),
+                FOREIGN KEY (course_id) REFERENCES courses(course_id)
             );
             """)
 
         conn.commit()
 
-        # Seed data if tables are empty
-        # Seed Customers
-        cursor.execute("SELECT COUNT(*) FROM customers;")
+        # Seed Departments
+        cursor.execute("SELECT COUNT(*) FROM departments;")
         if cursor.fetchone()[0] == 0:
-            customers = [
-                (
-                    "C001",
-                    "Acme Enterprise",
-                    "Technology",
-                    "Enterprise",
-                    "USA",
-                    "West",
-                    "2024-01-15 08:30:00",
-                    "Active",
-                ),
-                (
-                    "C002",
-                    "Globex Corporation",
-                    "Manufacturing",
-                    "Enterprise",
-                    "Canada",
-                    "North",
-                    "2023-11-10 11:15:00",
-                    "Active",
-                ),
-                (
-                    "C003",
-                    "Initech Financial",
-                    "Finance",
-                    "Mid-Market",
-                    "USA",
-                    "East",
-                    "2024-03-22 09:00:00",
-                    "Active",
-                ),
-                (
-                    "C004",
-                    "Umbrella Corp",
-                    "Healthcare",
-                    "Strategic",
-                    "UK",
-                    "Europe",
-                    "2022-05-18 14:00:00",
-                    "Churned",
-                ),
-                (
-                    "C005",
-                    "Tyrell Nexus",
-                    "Robotics",
-                    "Strategic",
-                    "USA",
-                    "West",
-                    "2025-02-01 10:45:00",
-                    "Active",
-                ),
+            departments = [
+                ("D01", "Computer Science", 120),
+                ("D02", "Mathematics", 80),
+                ("D03", "Physics", 60),
+                ("D04", "Chemistry", 50),
             ]
-            cursor.executemany(
-                "INSERT INTO customers VALUES (?, ?, ?, ?, ?, ?, ?, ?);", customers
-            )
+            cursor.executemany("INSERT INTO departments VALUES (?, ?, ?);", departments)
 
-        # Seed Products
-        cursor.execute("SELECT COUNT(*) FROM products;")
+        # Seed Students
+        cursor.execute("SELECT COUNT(*) FROM students;")
         if cursor.fetchone()[0] == 0:
-            products = [
-                (
-                    "P001",
-                    "SKU-CLOUD-SEC",
-                    "Cloud Security Suite",
-                    "Software",
-                    "Security",
-                    "2023-06-01",
-                    1,
-                ),
-                (
-                    "P002",
-                    "SKU-DATA-OPS",
-                    "DataOps Automation Engine",
-                    "Software",
-                    "Data Platform",
-                    "2024-01-10",
-                    1,
-                ),
-                (
-                    "P003",
-                    "SKU-BI-INSIGHT",
-                    "Business Intelligence Analytics",
-                    "Software",
-                    "Analytics",
-                    "2022-10-15",
-                    1,
-                ),
-                (
-                    "P004",
-                    "SKU-LEGACY-ERP",
-                    "Enterprise ERP Suite V1",
-                    "Software",
-                    "ERP",
-                    "2018-04-01",
-                    0,
-                ),
+            students = [
+                ("S01", "Alice Smith", "D01", 2023),
+                ("S02", "Bob Jones", "D01", 2024),
+                ("S03", "Charlie Brown", "D02", 2023),
+                ("S04", "Diana Prince", "D02", 2024),
+                ("S05", "Evan Wright", "D03", 2023),
+                ("S06", "Fiona Gallagher", "D01", 2023),
+                ("S07", "George Costanza", "D04", 2024),
             ]
-            cursor.executemany(
-                "INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?);", products
-            )
+            cursor.executemany("INSERT INTO students VALUES (?, ?, ?, ?);", students)
 
-        # Seed Calendar (covering a range around April / May 2026)
-        cursor.execute("SELECT COUNT(*) FROM calendar;")
+        # Seed Courses
+        cursor.execute("SELECT COUNT(*) FROM courses;")
         if cursor.fetchone()[0] == 0:
-            calendar_days = [
-                ("2026-04-28", 2026, "2026-Q2", "2026-04", "2026-04-27", 0),
-                ("2026-04-29", 2026, "2026-Q2", "2026-04", "2026-04-27", 0),
-                ("2026-04-30", 2026, "2026-Q2", "2026-04", "2026-04-27", 0),
-                (
-                    "2026-05-01",
-                    2026,
-                    "2026-Q2",
-                    "2026-05",
-                    "2026-04-27",
-                    0,
-                ),  # Labor Day/Holiday depending on locale
-                ("2026-05-02", 2026, "2026-Q2", "2026-05", "2026-04-27", 0),
-                ("2026-05-03", 2026, "2026-Q2", "2026-05", "2026-04-27", 0),
-                ("2026-05-04", 2026, "2026-Q2", "2026-05", "2026-05-04", 0),
-                (
-                    "2026-05-25",
-                    2026,
-                    "2026-Q2",
-                    "2026-05",
-                    "2026-05-25",
-                    1,
-                ),  # Memorial Day
+            courses = [
+                ("C01", "Introduction to Programming", "D01", "Online", 3),
+                ("C02", "Data Structures", "D01", "In-Person", 4),
+                ("C03", "Calculus I", "D02", "Online", 4),
+                ("C04", "Linear Algebra", "D02", "In-Person", 3),
+                ("C05", "Quantum Mechanics", "D03", "In-Person", 4),
+                ("C06", "Organic Chemistry", "D04", "Online", 4),
             ]
-            cursor.executemany(
-                "INSERT INTO calendar VALUES (?, ?, ?, ?, ?, ?);", calendar_days
-            )
+            cursor.executemany("INSERT INTO courses VALUES (?, ?, ?, ?, ?);", courses)
 
-        # Seed Sales Orders
-        cursor.execute("SELECT COUNT(*) FROM sales_orders;")
+        # Seed Enrollments
+        cursor.execute("SELECT COUNT(*) FROM enrollments;")
         if cursor.fetchone()[0] == 0:
-            orders = [
-                (1, "C001", "P001", "2026-04-28", "West", 15000.0, 1500.0, "Shipped"),
-                (
-                    2,
-                    "C001",
-                    "P002",
-                    "2026-04-30",
-                    "West",
-                    25000.0,
-                    2000.0,
-                    "Processing",
-                ),
-                (3, "C002", "P002", "2026-05-01", "North", 45000.0, 5000.0, "Shipped"),
-                (4, "C003", "P003", "2026-05-02", "East", 12000.0, 0.0, "Delivered"),
-                (
-                    5,
-                    "C005",
-                    "P001",
-                    "2026-05-04",
-                    "West",
-                    18000.0,
-                    1800.0,
-                    "Processing",
-                ),
-                (
-                    6,
-                    "C002",
-                    "P001",
-                    "2026-05-25",
-                    "North",
-                    15000.0,
-                    1000.0,
-                    "Cancelled",
-                ),
+            enrollments = [
+                (1, "S01", "C01", "A"),
+                (2, "S01", "C02", "B"),
+                (3, "S02", "C01", "A"),
+                (4, "S03", "C03", "A"),
+                (5, "S03", "C04", "B"),
+                (6, "S04", "C03", "C"),
+                (7, "S05", "C05", "A"),
+                (8, "S06", "C01", "B"),
+                (9, "S06", "C02", "A"),
+                (10, "S07", "C06", "B"),
             ]
             cursor.executemany(
-                "INSERT INTO sales_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?);", orders
+                "INSERT INTO enrollments (enrollment_id, student_id, course_id, grade) VALUES (?, ?, ?, ?);",
+                enrollments,
             )
 
         conn.commit()
+        logger.info("seed_beaver_db_success")
     except Exception as exc:
         conn.rollback()
-        logger.error("seed_analytics_db_failed", extra={"error": str(exc)})
-        raise
-    finally:
-        conn.close()
-
-
-def init_support_db(db_path: Path) -> None:
-    """Create tables and insert seed data for the support schema."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    try:
-        # Create tickets
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tickets (
-                ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                resolved_at TEXT,
-                priority TEXT NOT NULL,
-                status TEXT NOT NULL,
-                issue_type TEXT NOT NULL,
-                first_response_minutes INTEGER,
-                resolution_minutes INTEGER,
-                csat_score INTEGER
-            );
-            """)
-
-        conn.commit()
-
-        # Seed Tickets
-        cursor.execute("SELECT COUNT(*) FROM tickets;")
-        if cursor.fetchone()[0] == 0:
-            tickets = [
-                (
-                    101,
-                    "C001",
-                    "2026-04-20 09:30:00",
-                    "2026-04-20 10:45:00",
-                    "High",
-                    "Resolved",
-                    "Technical",
-                    15,
-                    75,
-                    5,
-                ),
-                (
-                    102,
-                    "C002",
-                    "2026-04-25 14:00:00",
-                    "2026-04-26 11:30:00",
-                    "Medium",
-                    "Resolved",
-                    "Billing",
-                    45,
-                    1290,
-                    4,
-                ),
-                (
-                    103,
-                    "C003",
-                    "2026-05-01 08:00:00",
-                    None,
-                    "Critical",
-                    "Open",
-                    "Technical",
-                    10,
-                    None,
-                    None,
-                ),
-                (
-                    104,
-                    "C001",
-                    "2026-05-03 11:00:00",
-                    "2026-05-03 11:20:00",
-                    "Low",
-                    "Resolved",
-                    "General Inquiry",
-                    20,
-                    20,
-                    5,
-                ),
-                (
-                    105,
-                    "C004",
-                    "2026-05-10 16:30:00",
-                    None,
-                    "High",
-                    "In Progress",
-                    "Bug Report",
-                    120,
-                    None,
-                    None,
-                ),
-            ]
-            cursor.executemany(
-                "INSERT INTO tickets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);", tickets
-            )
-
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        logger.error("seed_support_db_failed", extra={"error": str(exc)})
-        raise
-    finally:
-        conn.close()
-
-
-def init_marketing_db(db_path: Path) -> None:
-    """Create tables and insert seed data for the marketing schema."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    try:
-        # Create campaign_performance
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS campaign_performance (
-                campaign_id TEXT PRIMARY KEY,
-                campaign_name TEXT NOT NULL,
-                channel TEXT NOT NULL,
-                start_date TEXT NOT NULL,
-                end_date TEXT NOT NULL,
-                impressions INTEGER NOT NULL,
-                clicks INTEGER NOT NULL,
-                spend REAL NOT NULL,
-                leads INTEGER NOT NULL,
-                conversions INTEGER NOT NULL
-            );
-            """)
-
-        conn.commit()
-
-        # Seed Campaign Performance
-        cursor.execute("SELECT COUNT(*) FROM campaign_performance;")
-        if cursor.fetchone()[0] == 0:
-            campaigns = [
-                (
-                    "CMP01",
-                    "Spring Cloud Drive",
-                    "Google Ads",
-                    "2026-03-01",
-                    "2026-04-30",
-                    500000,
-                    25000,
-                    12500.0,
-                    1200,
-                    320,
-                ),
-                (
-                    "CMP02",
-                    "Enterprise Tech Event",
-                    "LinkedIn",
-                    "2026-04-15",
-                    "2026-05-15",
-                    150000,
-                    4500,
-                    8000.0,
-                    450,
-                    95,
-                ),
-                (
-                    "CMP03",
-                    "Data Summit Sponsorship",
-                    "Direct",
-                    "2026-05-01",
-                    "2026-05-05",
-                    80000,
-                    1200,
-                    15000.0,
-                    350,
-                    120,
-                ),
-                (
-                    "CMP04",
-                    "Security Best Practices Webinar",
-                    "Email",
-                    "2026-05-10",
-                    "2026-05-20",
-                    25000,
-                    1800,
-                    500.0,
-                    600,
-                    150,
-                ),
-            ]
-            cursor.executemany(
-                "INSERT INTO campaign_performance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                campaigns,
-            )
-
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        logger.error("seed_marketing_db_failed", extra={"error": str(exc)})
+        logger.error("seed_beaver_db_failed", extra={"error": str(exc)})
         raise
     finally:
         conn.close()

@@ -155,7 +155,10 @@ async def run_query(
 
     return QueryResponse(
         question=result.question,
-        retrieval=result.retrieval,
-        generation=result.generation,
-        execution=result.execution,
+        retrieved_tables=result.retrieved_tables,
+        generated_sql=result.generated_sql,
+        sql_explanation=result.sql_explanation,
+        validation_result=result.validation_result,
+        execution_result=result.execution_result,
+        latency_ms=result.latency_ms,
     )

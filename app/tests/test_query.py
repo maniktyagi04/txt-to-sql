@@ -1,22 +1,19 @@
-"""Tests for the End-to-End Query Pipeline.
+"""Tests for the End-to-End Query Pipeline and Route.
 
 Coverage:
-- QueryPipeline service: full success path (mock LLM), generate-only path (execute=False).
-- PipelineError propagation: retrieval failure, generation failure, validation failure, execution failure.
-- POST /query endpoint: 200 success, 422 validation block, 503 generation unavailable, 400 execution failure.
+- QueryPipeline execution flow orchestration.
+- Integration mapping inside POST /query.
+- Proper error propagation and code mapping.
 """
 
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
-
+from unittest.mock import MagicMock, AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.models.retrieval import TableRetrievalResult
-from app.models.query import GenerationStage, RetrievalStage, ExecutionStage
 from app.services.pipeline import (
     QueryPipeline,
     PipelineRetrievalError,
@@ -24,42 +21,44 @@ from app.services.pipeline import (
     PipelineValidationError,
     PipelineExecutionError,
 )
-from app.services.llm_service import (
-    GenerationResult,
-    LLMUnavailableError,
-)
+from app.services.llm_service import GenerationResult, LLMUnavailableError
+from app.models.retrieval import TableRetrievalResult
 from app.services.executor import SQLTimeoutError
 from app.utils.config import get_settings
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
 VALID_SQL = (
-    "SELECT campaign_name, conversions "
-    "FROM marketing.campaign_performance "
-    "ORDER BY conversions DESC LIMIT 5;"
+    "SELECT student_name "
+    "FROM beaver.students "
+    "ORDER BY student_name LIMIT 5;"
 )
 
 MOCK_RETRIEVED_TABLES = [
     TableRetrievalResult(
-        table_name="marketing.campaign_performance",
+        table_name="beaver.students",
         score=0.88,
-        reason="Direct match for campaigns and conversions.",
+        reason="Direct match for students.",
+        explanation="Direct match for students.",
+        confidence=0.88,
     )
 ]
 
 MOCK_LLM_RESULT = GenerationResult(
     sql=VALID_SQL,
     confidence=0.94,
+    explanation="Mocked SQL explanation.",
     raw_response='{"sql": "...", "confidence": 0.94}',
     latency_ms=100.0,
     attempt=1,
 )
 
 MOCK_EXEC_RESULT = {
-    "rows": [{"campaign_name": "Spring Cloud Drive", "conversions": 320}],
-    "columns": ["campaign_name", "conversions"],
+    "rows": [{"student_name": "Alice Smith"}],
+    "columns": ["student_name"],
     "row_count": 1,
     "execution_time_ms": 2.1,
 }
@@ -123,27 +122,26 @@ class TestQueryPipeline:
     async def test_full_pipeline_success(self):
         pipeline = _make_pipeline()
         result = await pipeline.run(
-            question="Which campaigns had the most conversions?",
+            question="Which students are in department CS?",
             execute=True,
         )
-        assert result.question == "Which campaigns had the most conversions?"
-        assert result.retrieval.tables == ["marketing.campaign_performance"]
-        assert result.retrieval.confidence_score == 0.88
-        assert result.generation.sql == VALID_SQL
-        assert result.generation.confidence == 0.94
-        assert result.execution is not None
-        assert result.execution.row_count == 1
-        assert result.execution.rows[0]["campaign_name"] == "Spring Cloud Drive"
-        assert result.total_latency_ms > 0.0
+        assert result.question == "Which students are in department CS?"
+        assert result.retrieved_tables[0].table_name == "beaver.students"
+        assert result.generated_sql == VALID_SQL
+        assert result.sql_explanation == "Mocked SQL explanation."
+        assert result.execution_result is not None
+        assert result.execution_result["row_count"] == 1
+        assert result.execution_result["rows"][0]["student_name"] == "Alice Smith"
+        assert result.latency_ms > 0.0
 
     async def test_pipeline_generate_only_no_execution(self):
         pipeline = _make_pipeline()
         result = await pipeline.run(
-            question="Which campaigns had the most conversions?",
+            question="Which students are in department CS?",
             execute=False,
         )
-        assert result.generation.sql == VALID_SQL
-        assert result.execution is None
+        assert result.generated_sql == VALID_SQL
+        assert result.execution_result is None
 
     async def test_pipeline_raises_retrieval_error(self):
         retriever = MagicMock()
@@ -152,7 +150,7 @@ class TestQueryPipeline:
         pipeline = _make_pipeline(retriever=retriever)
 
         with pytest.raises(PipelineRetrievalError) as exc_info:
-            await pipeline.run(question="Sales by region?")
+            await pipeline.run(question="Students list?")
         assert "retrieval failed" in str(exc_info.value).lower()
 
     async def test_pipeline_raises_generation_error_on_llm_unavailable(self):
@@ -161,7 +159,7 @@ class TestQueryPipeline:
         pipeline = _make_pipeline(llm_service=llm_service)
 
         with pytest.raises(PipelineGenerationError) as exc_info:
-            await pipeline.run(question="Sales by region?")
+            await pipeline.run(question="Students list?")
         assert "unavailable" in str(exc_info.value).lower()
 
     async def test_pipeline_raises_validation_error(self):
@@ -173,7 +171,7 @@ class TestQueryPipeline:
         pipeline = _make_pipeline(validator=validator)
 
         with pytest.raises(PipelineValidationError) as exc_info:
-            await pipeline.run(question="Sales by region?")
+            await pipeline.run(question="Students list?")
         assert "validation failed" in str(exc_info.value).lower()
 
     async def test_pipeline_raises_execution_error_on_timeout(self):
@@ -184,7 +182,7 @@ class TestQueryPipeline:
         pipeline = _make_pipeline(executor=executor)
 
         with pytest.raises(PipelineExecutionError) as exc_info:
-            await pipeline.run(question="Sales by region?", execute=True)
+            await pipeline.run(question="Students list?", execute=True)
         assert "execution failed" in str(exc_info.value).lower()
 
 
@@ -208,25 +206,25 @@ class TestQueryEndpoint:
 
         mock_pipeline = MagicMock()
         mock_result = MagicMock()
-        mock_result.question = "Which campaigns had the most conversions?"
-        mock_result.retrieval = RetrievalStage(
-            tables=["marketing.campaign_performance"],
-            confidence_score=0.88,
-        )
-        mock_result.generation = GenerationStage(sql=VALID_SQL, confidence=0.94)
-        mock_result.execution = ExecutionStage(
-            rows=[{"campaign_name": "Spring Cloud Drive", "conversions": 320}],
-            columns=["campaign_name", "conversions"],
-            row_count=1,
-            execution_time_ms=2.1,
-        )
+        mock_result.question = "Which students are in CS?"
+        mock_result.retrieved_tables = MOCK_RETRIEVED_TABLES
+        mock_result.generated_sql = VALID_SQL
+        mock_result.sql_explanation = "Mocked SQL explanation."
+        mock_result.validation_result = {"is_valid": True, "errors": []}
+        mock_result.execution_result = {
+            "rows": [{"student_name": "Alice Smith"}],
+            "columns": ["student_name"],
+            "row_count": 1,
+            "execution_time_ms": 2.1,
+        }
+        mock_result.latency_ms = 125.0
         mock_pipeline.run = AsyncMock(return_value=mock_result)
 
         app: Any = client.app
         app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
         payload = {
-            "question": "Which campaigns had the most conversions?",
+            "question": "Which students are in CS?",
             "execute": True,
             "timeout_seconds": 5.0,
         }
@@ -235,42 +233,40 @@ class TestQueryEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["question"] == "Which campaigns had the most conversions?"
-        assert data["retrieval"]["tables"] == ["marketing.campaign_performance"]
-        assert data["retrieval"]["confidence_score"] == 0.88
-        assert data["generation"]["sql"] == VALID_SQL
-        assert data["generation"]["confidence"] == 0.94
-        assert data["execution"]["row_count"] == 1
-        assert data["execution"]["rows"][0]["campaign_name"] == "Spring Cloud Drive"
+        assert data["question"] == "Which students are in CS?"
+        assert data["retrieved_tables"][0]["table_name"] == "beaver.students"
+        assert data["generated_sql"] == VALID_SQL
+        assert data["sql_explanation"] == "Mocked SQL explanation."
+        assert data["validation_result"]["is_valid"] is True
+        assert data["execution_result"]["row_count"] == 1
+        assert data["execution_result"]["rows"][0]["student_name"] == "Alice Smith"
 
     def test_query_generate_only(self, client: TestClient):
-        """Pipeline with execute=False should return null execution stage."""
+        """Pipeline with execute=False should return null execution result."""
         from app.routes.query import get_query_pipeline
 
         mock_pipeline = MagicMock()
         mock_result = MagicMock()
-        mock_result.question = "Sales by region?"
-        mock_result.retrieval = RetrievalStage(
-            tables=["analytics.sales_orders"], confidence_score=0.82
-        )
-        mock_result.generation = GenerationStage(
-            sql="SELECT region, SUM(enterprise_sales_amount) FROM analytics.sales_orders GROUP BY region;",
-            confidence=0.91,
-        )
-        mock_result.execution = None
+        mock_result.question = "Students list?"
+        mock_result.retrieved_tables = MOCK_RETRIEVED_TABLES
+        mock_result.generated_sql = VALID_SQL
+        mock_result.sql_explanation = "Mocked SQL explanation."
+        mock_result.validation_result = {"is_valid": True, "errors": []}
+        mock_result.execution_result = None
+        mock_result.latency_ms = 80.0
         mock_pipeline.run = AsyncMock(return_value=mock_result)
 
         app: Any = client.app
         app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
-        payload = {"question": "Sales by region?", "execute": False}
+        payload = {"question": "Students list?", "execute": False}
         response = client.post("/query", json=payload)
         app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["execution"] is None
-        assert data["generation"]["sql"] is not None
+        assert data["execution_result"] is None
+        assert data["generated_sql"] == VALID_SQL
 
     def test_query_validation_failure_returns_422(self, client: TestClient):
         """PipelineValidationError maps to HTTP 422."""
@@ -301,7 +297,7 @@ class TestQueryEndpoint:
         app: Any = client.app
         app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
-        response = client.post("/query", json={"question": "Total sales last quarter?"})
+        response = client.post("/query", json={"question": "Total students?"})
         app.dependency_overrides.clear()
 
         assert response.status_code == 503
@@ -317,7 +313,7 @@ class TestQueryEndpoint:
         app: Any = client.app
         app.dependency_overrides[get_query_pipeline] = lambda: mock_pipeline
 
-        response = client.post("/query", json={"question": "Total sales last quarter?"})
+        response = client.post("/query", json={"question": "Total students?"})
         app.dependency_overrides.clear()
 
         assert response.status_code == 400

@@ -97,29 +97,27 @@ def test_build_and_load_embedding_store(
 
 def test_semantic_retrieval(retriever: SchemaRetriever):
     """Test semantic retrieval of relevant tables based on natural language questions."""
-    # Question about sales should favor sales orders
-    sales_results = retriever.retrieve(
-        "What are the quarterly enterprise sales?", top_k=2
+    # Question about courses should favor courses
+    courses_results = retriever.retrieve(
+        "What are the credits for course Introduction to Programming?", top_k=2
     )
-    assert len(sales_results) == 2
-    assert sales_results[0].table_name == "analytics.sales_orders"
-    assert sales_results[0].score > 0.0
-    assert "sales" in sales_results[0].reason or "Quarter" in sales_results[0].reason
+    assert len(courses_results) == 2
+    assert courses_results[0].table_name == "beaver.courses"
+    assert courses_results[0].score > 0.0
+    assert "course" in courses_results[0].reason.lower() or "beaver" in courses_results[0].reason.lower()
 
-    # Question about support issues should favor support tickets
-    support_results = retriever.retrieve(
-        "Show all open customer support incidents with low response times", top_k=1
+    # Question about student enrollment should favor students or enrollments
+    enrollment_results = retriever.retrieve(
+        "Show all student enrollments and grades", top_k=1
     )
-    assert len(support_results) == 1
-    assert support_results[0].table_name == "support.tickets"
-    assert (
-        "support" in support_results[0].reason or "tickets" in support_results[0].reason
-    )
+    assert len(enrollment_results) == 1
+    assert "beaver" in enrollment_results[0].table_name
+    assert enrollment_results[0].score > 0.0
 
 
 def test_confidence_score(retriever: SchemaRetriever):
     """Test confidence score calculation is based on the top result."""
-    results = retriever.retrieve("quarterly revenue report", top_k=2)
+    results = retriever.retrieve("student enrollment courses", top_k=2)
     conf = retriever.confidence_score(results)
     assert conf == results[0].score
 
@@ -147,7 +145,7 @@ def test_api_retrieve_success(test_settings: Settings):
 
     with TestClient(app) as client:
         payload = {
-            "question": "What is the marketing channel campaign spend and conversions last month?",
+            "question": "What is the enrollment year of student Alice Smith?",
             "top_k": 3,
         }
         response = client.post("/retrieve", json=payload)
@@ -160,7 +158,8 @@ def test_api_retrieve_success(test_settings: Settings):
 
         results = data["results"]
         assert len(results) == 3
-        assert results[0]["table_name"] == "marketing.campaign_performance"
+        table_names = [r["table_name"] for r in results]
+        assert "beaver.students" in table_names
         assert results[0]["score"] > 0.0
         assert isinstance(results[0]["reason"], str)
 

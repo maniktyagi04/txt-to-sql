@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from pydantic import BaseModel, Field, ConfigDict
+from app.models.retrieval import TableRetrievalResult
 
 
 class QueryRequest(BaseModel):
@@ -79,33 +80,45 @@ class QueryResponse(BaseModel):
     """Complete end-to-end pipeline response."""
 
     question: str = Field(..., description="Original natural language question.")
-    retrieval: RetrievalStage
-    generation: GenerationStage
-    execution: ExecutionStage | None = Field(
-        default=None,
-        description="Execution results, or null when execute=False.",
+    retrieved_tables: list[TableRetrievalResult] = Field(
+        ..., description="List of retrieved tables with their retrieval scores and explanations."
     )
+    generated_sql: str = Field(..., description="The generated SQL query.")
+    sql_explanation: str = Field(..., description="Explanation of the generated SQL query.")
+    validation_result: dict[str, Any] = Field(
+        ..., description="Validation result indicating whether the query is valid and listing any errors."
+    )
+    execution_result: dict[str, Any] | None = Field(
+        default=None,
+        description="Execution result rows and column names, or null when execution is skipped/fails.",
+    )
+    latency_ms: float = Field(..., description="Total pipeline latency in milliseconds.")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "question": "What are the top 5 campaigns by conversions?",
-                "retrieval": {
-                    "tables": ["marketing.campaign_performance"],
-                    "confidence_score": 0.88,
-                },
-                "generation": {
-                    "sql": "SELECT campaign_name, conversions FROM marketing.campaign_performance ORDER BY conversions DESC LIMIT 5;",
-                    "confidence": 0.94,
-                },
-                "execution": {
+                "question": "Show departments with highest enrollment",
+                "retrieved_tables": [
+                    {
+                        "table_name": "beaver.departments",
+                        "score": 0.95,
+                        "reason": "Required department metadata for query resolution.",
+                        "explanation": "Provides department names and core headcounts.",
+                        "confidence": 0.95,
+                    }
+                ],
+                "generated_sql": "SELECT d.department_name, COUNT(e.student_id) AS enrollment_count FROM beaver.departments d JOIN beaver.courses c ON d.department_id = c.department_id JOIN beaver.enrollments e ON c.course_id = e.course_id GROUP BY d.department_name ORDER BY enrollment_count DESC;",
+                "sql_explanation": "This query joins departments to courses and then to enrollments to count the total student enrollments per department.",
+                "validation_result": {"is_valid": True, "errors": []},
+                "execution_result": {
                     "rows": [
-                        {"campaign_name": "Spring Cloud Drive", "conversions": 320}
+                        {"department_name": "Computer Science", "enrollment_count": 5}
                     ],
-                    "columns": ["campaign_name", "conversions"],
+                    "columns": ["department_name", "enrollment_count"],
                     "row_count": 1,
-                    "execution_time_ms": 3.2,
+                    "execution_time_ms": 1.5,
                 },
+                "latency_ms": 125.4,
             }
         }
     )

@@ -53,10 +53,10 @@ class TestSQLValidator:
     def test_valid_syntax_and_references(self, validator: SQLValidator):
         # Correctly qualified columns, joined tables, standard filters
         sql = (
-            "SELECT so.order_id, c.account_name "
-            "FROM analytics.sales_orders AS so "
-            "JOIN analytics.customers AS c ON so.customer_id = c.customer_id "
-            "WHERE so.region = 'West';"
+            "SELECT s.student_id, d.department_name "
+            "FROM beaver.students AS s "
+            "JOIN beaver.departments AS d ON s.department_id = d.department_id "
+            "WHERE d.department_name = 'Computer Science';"
         )
         res = validator.validate(sql)
         assert res["is_valid"] is True
@@ -64,36 +64,36 @@ class TestSQLValidator:
 
     def test_invalid_syntax(self, validator: SQLValidator):
         # Mismatched parenthesis / select clause
-        sql = "SELECT order_id, FROM analytics.sales_orders WHERE (order_id = 1"
+        sql = "SELECT student_id, FROM beaver.students WHERE (student_id = 'S01'"
         res = validator.validate(sql)
         assert res["is_valid"] is False
         assert any("Syntax" in err or "Parsing" in err for err in res["errors"])
 
     def test_invalid_table_reference(self, validator: SQLValidator):
-        # Table analytics.ghost_table does not exist in schema_metadata.json
-        sql = "SELECT order_id FROM analytics.ghost_table;"
+        # Table beaver.ghost_table does not exist in schema_metadata.json
+        sql = "SELECT student_id FROM beaver.ghost_table;"
         res = validator.validate(sql)
         assert res["is_valid"] is False
         assert any(
-            "Table 'analytics.ghost_table' is not defined" in err
+            "Table 'beaver.ghost_table' is not defined" in err
             for err in res["errors"]
         )
 
     def test_cte_reference_succeeds(self, validator: SQLValidator):
         # CTEs shouldn't trigger "table not defined in schema" errors
         sql = (
-            "WITH local_orders AS ("
-            "  SELECT order_id, customer_id FROM analytics.sales_orders"
+            "WITH local_students AS ("
+            "  SELECT student_id, department_id FROM beaver.students"
             ")"
-            "SELECT o.order_id FROM local_orders o;"
+            "SELECT s.student_id FROM local_students s;"
         )
         res = validator.validate(sql)
         assert res["is_valid"] is True
         assert len(res["errors"]) == 0
 
     def test_invalid_column_reference(self, validator: SQLValidator):
-        # 'clicks' column belongs to campaign_performance, not sales_orders
-        sql = "SELECT clicks FROM analytics.sales_orders;"
+        # 'grade' column belongs to enrollments, not students
+        sql = "SELECT grade FROM beaver.students;"
         res = validator.validate(sql)
         assert res["is_valid"] is False
         assert any(
@@ -101,11 +101,11 @@ class TestSQLValidator:
         )
 
     def test_unqualified_ambiguous_column_fails(self, validator: SQLValidator):
-        # customer_id is in both sales_orders and customers, so unqualified customer_id in SELECT is ambiguous
+        # department_id is in both students and departments, so unqualified department_id is ambiguous
         sql = (
-            "SELECT customer_id "
-            "FROM analytics.sales_orders "
-            "JOIN analytics.customers ON sales_orders.customer_id = customers.customer_id;"
+            "SELECT department_id "
+            "FROM beaver.students "
+            "JOIN beaver.departments ON students.department_id = departments.department_id;"
         )
         res = validator.validate(sql)
         assert res["is_valid"] is False
@@ -116,7 +116,7 @@ class TestSQLValidator:
 
     def test_case_insensitivity(self, validator: SQLValidator):
         # Mixed casing in tables/columns should resolve fine
-        sql = "SELECT ORDER_ID, customer_id FROM ANALYTICS.sales_orders WHERE REGION = 'West';"
+        sql = "SELECT STUDENT_ID, department_id FROM BEAVER.students WHERE ENROLLMENT_YEAR = 2023;"
         res = validator.validate(sql)
         assert res["is_valid"] is True
         assert len(res["errors"]) == 0
@@ -137,10 +137,11 @@ class TestGenerateSQLEndpointWithValidator:
 
     def test_successful_validation_returns_200(self, client: TestClient):
         # Valid generated SQL
-        valid_sql = "SELECT order_id FROM analytics.sales_orders WHERE region = 'West';"
+        valid_sql = "SELECT student_id FROM beaver.students WHERE enrollment_year = 2023;"
         mock_result = GenerationResult(
             sql=valid_sql,
             confidence=0.91,
+            explanation="Mocked SQL explanation.",
             raw_response='{"sql": "...", "confidence": 0.91}',
             latency_ms=100.0,
             attempt=1,
@@ -158,12 +159,14 @@ class TestGenerateSQLEndpointWithValidator:
         app.dependency_overrides[get_prompt_builder] = lambda: mock_builder
 
         payload = {
-            "question": "Show me orders in the West region.",
+            "question": "Show me students enrolled in 2023.",
             "retrieved_tables": [
                 {
-                    "table_name": "analytics.sales_orders",
+                    "table_name": "beaver.students",
                     "score": 0.9,
                     "reason": "Match",
+                    "explanation": "Match",
+                    "confidence": 0.9,
                 }
             ],
         }
@@ -178,10 +181,11 @@ class TestGenerateSQLEndpointWithValidator:
 
     def test_invalid_validation_returns_422(self, client: TestClient):
         # Invalid generated SQL (missing table / wrong column reference)
-        invalid_sql = "SELECT invalid_col FROM analytics.sales_orders;"
+        invalid_sql = "SELECT invalid_col FROM beaver.students;"
         mock_result = GenerationResult(
             sql=invalid_sql,
             confidence=0.88,
+            explanation="Mocked SQL explanation.",
             raw_response='{"sql": "...", "confidence": 0.88}',
             latency_ms=100.0,
             attempt=1,
@@ -202,9 +206,11 @@ class TestGenerateSQLEndpointWithValidator:
             "question": "Show me invalid columns.",
             "retrieved_tables": [
                 {
-                    "table_name": "analytics.sales_orders",
+                    "table_name": "beaver.students",
                     "score": 0.9,
                     "reason": "Match",
+                    "explanation": "Match",
+                    "confidence": 0.9,
                 }
             ],
         }
@@ -212,11 +218,8 @@ class TestGenerateSQLEndpointWithValidator:
         response = client.post("/generate-sql", json=payload)
         app.dependency_overrides.clear()
 
-        # The endpoint must intercept the invalid SQL and abort with 422 Unprocessable Entity
+        # The endpoint must intercept the invalid SQL and abort with 422 Unprocessable Content
         assert response.status_code == 422
         data = response.json()
         assert "errors" in data
-        assert any(
-            "Failed" in err["message"] or "validation" in err["message"].lower()
-            for err in data["errors"]
-        )
+        assert any("failed validation" in err["message"].lower() for err in data["errors"])

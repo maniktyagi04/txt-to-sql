@@ -27,7 +27,7 @@ class RetrieveRequest(BaseModel):
 
 
 class TableRetrievalResult(BaseModel):
-    table_name: str = Field(..., examples=["analytics.sales_orders"])
+    table_name: str = Field(..., examples=["beaver.departments"])
     score: float = Field(..., ge=0.0, le=1.0, examples=[0.91])
     reason: str = Field(
         ...,
@@ -35,6 +35,11 @@ class TableRetrievalResult(BaseModel):
             "The table description and columns match sales, region, and quarter terms."
         ],
     )
+    explanation: str = Field(
+        ...,
+        examples=["Department information needed for enrollment aggregation."],
+    )
+    confidence: float = Field(..., ge=0.0, le=1.0, examples=[0.91])
 
 
 class RetrieveResponse(BaseModel):
@@ -48,9 +53,11 @@ class RetrieveResponse(BaseModel):
             "example": {
                 "results": [
                     {
-                        "table_name": "analytics.sales_orders",
+                        "table_name": "beaver.departments",
                         "score": 0.91,
-                        "reason": "The table description and columns match sales, region, and quarter terms.",
+                        "reason": "Enrollment-related query requires department aggregation.",
+                        "explanation": "Enrollment-related query requires department aggregation.",
+                        "confidence": 0.91,
                     }
                 ],
                 "confidence_score": 0.91,

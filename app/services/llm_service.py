@@ -40,21 +40,30 @@ class LLMMaxRetriesExceededError(LLMServiceError):
 
 
 class GenerationResult:
-    """Holds the parsed SQL and confidence from the model."""
+    """Holds the parsed SQL, confidence, and explanation from the model."""
 
-    __slots__ = ("sql", "confidence", "raw_response", "latency_ms", "attempt")
+    __slots__ = (
+        "sql",
+        "confidence",
+        "explanation",
+        "raw_response",
+        "latency_ms",
+        "attempt",
+    )
 
     def __init__(
         self,
         *,
         sql: str,
         confidence: float,
+        explanation: str,
         raw_response: str,
         latency_ms: float,
         attempt: int,
     ) -> None:
         self.sql = sql
         self.confidence = confidence
+        self.explanation = explanation
         self.raw_response = raw_response
         self.latency_ms = latency_ms
         self.attempt = attempt
@@ -76,8 +85,8 @@ def _strip_markdown_fences(text: str) -> str:
     return text.strip()
 
 
-def _parse_response(raw: str) -> tuple[str, float]:
-    """Parse the LLM raw text into (sql, confidence).
+def _parse_response(raw: str) -> tuple[str, float, str]:
+    """Parse the LLM raw text into (sql, confidence, explanation).
 
     Strategy:
     1. Strip any markdown fences.
@@ -95,6 +104,7 @@ def _parse_response(raw: str) -> tuple[str, float]:
 
     sql = payload.get("sql")
     confidence_raw = payload.get("confidence")
+    explanation_raw = payload.get("explanation")
 
     if not isinstance(sql, str) or not sql.strip():
         raise LLMResponseParseError(
@@ -113,7 +123,14 @@ def _parse_response(raw: str) -> tuple[str, float]:
     confidence = max(
         _CONFIDENCE_CLAMP[0], min(_CONFIDENCE_CLAMP[1], float(confidence_raw))
     )
-    return sql.strip(), confidence
+
+    # Dynamic explanation fallback if missing or empty
+    if not isinstance(explanation_raw, str) or not explanation_raw.strip():
+        explanation = f"Generated query targeting Beaver database tables to calculate requested records."
+    else:
+        explanation = explanation_raw.strip()
+
+    return sql.strip(), confidence, explanation
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +176,10 @@ class GeminiLLMService:
                 return GenerationResult(
                     sql=cached_data["sql"],
                     confidence=cached_data["confidence"],
+                    explanation=cached_data.get(
+                        "explanation",
+                        "Generated query targeting Beaver database tables.",
+                    ),
                     raw_response=cached_data["raw_response"],
                     latency_ms=cached_data["latency_ms"],
                     attempt=cached_data["attempt"],
@@ -180,7 +201,7 @@ class GeminiLLMService:
                 raw = self._call_api(client, prompt)
                 latency_ms = (time.monotonic() - t_start) * 1_000
 
-                sql, confidence = _parse_response(raw)
+                sql, confidence, explanation = _parse_response(raw)
 
                 logger.info(
                     "llm_generation_succeeded",
@@ -196,6 +217,7 @@ class GeminiLLMService:
                 result = GenerationResult(
                     sql=sql,
                     confidence=confidence,
+                    explanation=explanation,
                     raw_response=raw,
                     latency_ms=latency_ms,
                     attempt=attempt,
@@ -209,6 +231,7 @@ class GeminiLLMService:
                         {
                             "sql": result.sql,
                             "confidence": result.confidence,
+                            "explanation": result.explanation,
                             "raw_response": result.raw_response,
                             "latency_ms": result.latency_ms,
                             "attempt": result.attempt,

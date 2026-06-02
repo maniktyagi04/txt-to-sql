@@ -129,7 +129,7 @@ class SQLExecutor:
 
         try:
             # Attach individual schemas
-            for schema in ("analytics", "support", "marketing"):
+            for schema in ("beaver",):
                 db_file = self.db_dir / f"{schema}.db"
                 if not db_file.exists():
                     raise SQLExecutionError(

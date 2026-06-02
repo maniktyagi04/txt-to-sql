@@ -1,5 +1,11 @@
 # Enterprise Text-to-SQL API
 
+> **Dataset Note:** This implementation demonstrates a BEAVER-inspired Text-to-SQL architecture
+> using a simplified academic schema (`beaver.departments`, `beaver.students`, `beaver.courses`,
+> `beaver.enrollments`) and is designed to be dataset-agnostic. It is not integrated with the
+> full MIT/CSAIL BEAVER enterprise benchmark (arXiv:2409.02038, 812 tables, 19 domains).
+> See [`docs/BEAVER_GAP_ANALYSIS.md`](docs/BEAVER_GAP_ANALYSIS.md) for the full migration analysis.
+
 An enterprise-grade, secure, and production-ready REST API that translates natural language business questions into syntactically and semantically correct SQL, executes the queries against restricted SQLite data sources under strict VM-level limits, and returns formatted result sets.
 
 ---
@@ -16,7 +22,7 @@ graph TD
     RateLimit -->|3. Security Headers Hardening| Security[Security Headers Middleware]
     
     subgraph Core Pipeline Services
-        Security -->|4. Hybrid Semantics Search| Retriever[Schema Retriever]
+        Security -->|4. Dense Vector Semantic Search| Retriever[Schema Retriever]
         Retriever -->|Retrieve context & check cache| VectorStore[(Schema Embeddings Store)]
         
         Retriever -->|5. Build Contextual Prompt| Prompt[SQL Prompt Builder]
@@ -141,7 +147,7 @@ Retrieves relevant schema tables for a question.
 - **Request Body**:
   ```json
   {
-    "question": "What is our conversion rate on marketing campaigns?",
+    "question": "Which students are enrolled in online courses?",
     "top_k": 3
   }
   ```
@@ -150,12 +156,28 @@ Retrieves relevant schema tables for a question.
   {
     "results": [
       {
-        "table_name": "marketing.campaign_performance",
-        "score": 0.7251,
-        "reason": "Matched schema metadata terms (campaigns, conversion, performance) with semantic similarity score 0.73."
+        "table_name": "beaver.enrollments",
+        "score": 0.9124,
+        "reason": "Provides pivot mappings between students and their course registrations.",
+        "explanation": "Provides pivot mappings between students and their course registrations.",
+        "confidence": 0.9124
+      },
+      {
+        "table_name": "beaver.courses",
+        "score": 0.8871,
+        "reason": "Enables filtering courses by delivery mode (online/in-person).",
+        "explanation": "Enables filtering courses by delivery mode (online/in-person).",
+        "confidence": 0.8871
+      },
+      {
+        "table_name": "beaver.students",
+        "score": 0.8612,
+        "reason": "Retrieves student profiles, names, and academic affiliations.",
+        "explanation": "Retrieves student profiles, names, and academic affiliations.",
+        "confidence": 0.8612
       }
     ],
-    "confidence_score": 0.7251,
+    "confidence_score": 0.9124,
     "top_k": 3,
     "model_name": "all-MiniLM-L6-v2"
   }
@@ -166,12 +188,28 @@ Translates a question and pre-retrieved context into SQL.
 - **Request Body**:
   ```json
   {
-    "question": "Show me conversion rates on campaigns.",
+    "question": "Which students are enrolled in online courses?",
     "retrieved_tables": [
       {
-        "table_name": "marketing.campaign_performance",
-        "score": 0.7251,
-        "reason": "Match"
+        "table_name": "beaver.enrollments",
+        "score": 0.9124,
+        "reason": "Maps students to course registrations.",
+        "explanation": "Maps students to course registrations.",
+        "confidence": 0.9124
+      },
+      {
+        "table_name": "beaver.courses",
+        "score": 0.8871,
+        "reason": "Contains course type (online/in-person).",
+        "explanation": "Contains course type (online/in-person).",
+        "confidence": 0.8871
+      },
+      {
+        "table_name": "beaver.students",
+        "score": 0.8612,
+        "reason": "Holds student name and ID.",
+        "explanation": "Holds student name and ID.",
+        "confidence": 0.8612
       }
     ]
   }
@@ -179,17 +217,18 @@ Translates a question and pre-retrieved context into SQL.
 - **Response (200 OK)**:
   ```json
   {
-    "sql": "SELECT campaign_name, conversion_rate FROM marketing.campaign_performance;",
-    "confidence": 0.94
+    "sql": "SELECT DISTINCT s.student_name FROM beaver.students s JOIN beaver.enrollments e ON s.student_id = e.student_id JOIN beaver.courses c ON e.course_id = c.course_id WHERE c.course_type = 'Online';",
+    "confidence": 0.97,
+    "sql_explanation": "Joins students, enrollments, and courses, filtering for courses where course_type is 'Online'."
   }
   ```
 
 ### 3. `POST /execute`
-Executes raw SQL query on the attached SQLite databases.
+Executes a raw SQL query on the attached SQLite databases.
 - **Request Body**:
   ```json
   {
-    "sql": "SELECT campaign_name, conversions FROM marketing.campaign_performance LIMIT 1;",
+    "sql": "SELECT department_name, headcount FROM beaver.departments ORDER BY headcount DESC LIMIT 3;",
     "timeout_seconds": 5.0
   }
   ```
@@ -197,14 +236,13 @@ Executes raw SQL query on the attached SQLite databases.
   ```json
   {
     "rows": [
-      {
-        "campaign_name": "Spring Cloud Drive",
-        "conversions": 320
-      }
+      { "department_name": "Computer Science", "headcount": 120 },
+      { "department_name": "Mathematics",      "headcount": 80  },
+      { "department_name": "Physics",          "headcount": 60  }
     ],
-    "columns": ["campaign_name", "conversions"],
-    "row_count": 1,
-    "execution_time_ms": 2.14
+    "columns": ["department_name", "headcount"],
+    "row_count": 3,
+    "execution_time_ms": 1.84
   }
   ```
 
@@ -213,7 +251,7 @@ Accepts a natural language question and runs all stages.
 - **Request Body**:
   ```json
   {
-    "question": "What are the top 5 campaigns by conversions?",
+    "question": "Show departments with the highest enrollment",
     "top_k": 5,
     "execute": true,
     "timeout_seconds": 5.0
@@ -222,26 +260,55 @@ Accepts a natural language question and runs all stages.
 - **Response (200 OK)**:
   ```json
   {
-    "question": "What are the top 5 campaigns by conversions?",
-    "retrieval": {
-      "tables": ["marketing.campaign_performance"],
-      "confidence_score": 0.88
+    "question": "Show departments with the highest enrollment",
+    "retrieved_tables": [
+      {
+        "table_name": "beaver.students",
+        "score": 0.7601,
+        "reason": "Retrieves student profiles, names, and academic affiliations.",
+        "explanation": "Retrieves student profiles, names, and academic affiliations.",
+        "confidence": 0.7601
+      },
+      {
+        "table_name": "beaver.enrollments",
+        "score": 0.7493,
+        "reason": "Provides pivot mappings between students and their course registrations.",
+        "explanation": "Provides pivot mappings between students and their course registrations.",
+        "confidence": 0.7493
+      },
+      {
+        "table_name": "beaver.departments",
+        "score": 0.7287,
+        "reason": "Enrollment-related query requires department aggregation.",
+        "explanation": "Enrollment-related query requires department aggregation.",
+        "confidence": 0.7287
+      },
+      {
+        "table_name": "beaver.courses",
+        "score": 0.6642,
+        "reason": "Provides details of course catalog, credits, and titles.",
+        "explanation": "Provides details of course catalog, credits, and titles.",
+        "confidence": 0.6642
+      }
+    ],
+    "generated_sql": "SELECT d.department_name, COUNT(e.student_id) AS enrollments FROM beaver.departments d JOIN beaver.courses c ON d.department_id = c.department_id JOIN beaver.enrollments e ON c.course_id = e.course_id GROUP BY d.department_name ORDER BY enrollments DESC;",
+    "sql_explanation": "Joins departments, courses, and enrollments to count total student enrollments per department, sorted descending.",
+    "validation_result": {
+      "is_valid": true,
+      "errors": []
     },
-    "generation": {
-      "sql": "SELECT campaign_name, conversions FROM marketing.campaign_performance ORDER BY conversions DESC LIMIT 5;",
-      "confidence": 0.94
-    },
-    "execution": {
+    "execution_result": {
       "rows": [
-        {
-          "campaign_name": "Spring Cloud Drive",
-          "conversions": 320
-        }
+        { "department_name": "Computer Science", "enrollments": 5 },
+        { "department_name": "Mathematics",      "enrollments": 3 },
+        { "department_name": "Physics",          "enrollments": 1 },
+        { "department_name": "Chemistry",        "enrollments": 1 }
       ],
-      "columns": ["campaign_name", "conversions"],
-      "row_count": 1,
-      "execution_time_ms": 3.2
-    }
+      "columns": ["department_name", "enrollments"],
+      "row_count": 4,
+      "execution_time_ms": 3.04
+    },
+    "latency_ms": 125.4
   }
   ```
 

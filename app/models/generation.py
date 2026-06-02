@@ -16,6 +16,8 @@ class GenerateSQLRequest(BaseModel):
                     table_name="analytics.sales_orders",
                     score=0.91,
                     reason="Matched schema metadata terms.",
+                    explanation="Matched schema metadata terms.",
+                    confidence=0.91,
                 )
             ]
         ],
@@ -41,16 +43,23 @@ class GenerateSQLResponse(BaseModel):
     sql: str = Field(
         ...,
         examples=[
-            "SELECT so.region, SUM(so.enterprise_sales_amount) FROM analytics.sales_orders so GROUP BY so.region"
+            "SELECT d.department_name, COUNT(s.student_id) FROM beaver.departments d JOIN beaver.students s ON d.department_id = s.department_id GROUP BY d.department_name"
         ],
     )
     confidence: float = Field(..., ge=0.0, le=1.0, examples=[0.87])
+    explanation: str = Field(
+        ...,
+        examples=[
+            "This query joins departments and students and counts students per department."
+        ],
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "sql": "SELECT so.region, SUM(so.enterprise_sales_amount) FROM analytics.sales_orders so GROUP BY so.region",
+                "sql": "SELECT d.department_name, COUNT(s.student_id) FROM beaver.departments d JOIN beaver.students s ON d.department_id = s.department_id GROUP BY d.department_name",
                 "confidence": 0.87,
+                "explanation": "This query joins departments and students and counts students per department.",
             }
         }
     )

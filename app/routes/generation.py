@@ -141,4 +141,8 @@ async def generate_sql(
         },
     )
 
-    return GenerateSQLResponse(sql=result.sql, confidence=result.confidence)
+    return GenerateSQLResponse(
+        sql=result.sql,
+        confidence=result.confidence,
+        explanation=result.explanation,
+    )

@@ -1,5 +1,10 @@
 # Enterprise Text-to-SQL API TRD
 
+> **Implementation Scope:** This document describes the full target technical design.
+> The current implementation covers the core pipeline (retrieval, generation, validation,
+> execution, benchmarking) without multi-tenancy, authentication layers, async job workers,
+> or audit services. See `FINAL_SUBMISSION_REPORT.md` for exact implementation scope.
+
 ## Architecture
 
 The Enterprise Text-to-SQL API is organized as a staged pipeline:

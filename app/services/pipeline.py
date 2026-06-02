@@ -6,6 +6,8 @@ in a single call, providing structured per-stage results with full telemetry.
 
 from __future__ import annotations
 
+from typing import Any
+
 import time
 
 from starlette.concurrency import run_in_threadpool
@@ -71,16 +73,20 @@ class PipelineResult:
     def __init__(
         self,
         question: str,
-        retrieval: RetrievalStage,
-        generation: GenerationStage,
-        execution: ExecutionStage | None,
-        total_latency_ms: float,
+        retrieved_tables: list[TableRetrievalResult],
+        generated_sql: str,
+        sql_explanation: str,
+        validation_result: dict[str, Any],
+        execution_result: dict[str, Any] | None,
+        latency_ms: float,
     ) -> None:
         self.question = question
-        self.retrieval = retrieval
-        self.generation = generation
-        self.execution = execution
-        self.total_latency_ms = total_latency_ms
+        self.retrieved_tables = retrieved_tables
+        self.generated_sql = generated_sql
+        self.sql_explanation = sql_explanation
+        self.validation_result = validation_result
+        self.execution_result = execution_result
+        self.latency_ms = latency_ms
 
 
 class QueryPipeline:
@@ -147,21 +153,15 @@ class QueryPipeline:
             logger.error("pipeline_retrieval_failed", extra={"error": str(exc)})
             raise PipelineRetrievalError(f"Schema retrieval failed: {exc}") from exc
 
-        retrieval_stage = RetrievalStage(
-            tables=[t.table_name for t in retrieved_tables],
-            confidence_score=self.retriever.confidence_score(retrieved_tables),
-        )
-
         logger.info(
             "pipeline_retrieval_done",
             extra={
                 "table_count": len(retrieved_tables),
-                "confidence": retrieval_stage.confidence_score,
             },
         )
 
         # ------------------------------------------------------------------ #
-        # Stage 2: SQL Generation
+        # Stage 2: SQL Generation & Explanation
         # ------------------------------------------------------------------ #
         try:
             prompt = self.prompt_builder.build_prompt(
@@ -182,11 +182,6 @@ class QueryPipeline:
             raise PipelineGenerationError(f"LLM response parse error: {exc}") from exc
         except LLMServiceError as exc:
             raise PipelineGenerationError(f"LLM service error: {exc}") from exc
-
-        generation_stage = GenerationStage(
-            sql=llm_result.sql,
-            confidence=llm_result.confidence,
-        )
 
         logger.info(
             "pipeline_generation_done",
@@ -215,7 +210,7 @@ class QueryPipeline:
         # ------------------------------------------------------------------ #
         # Stage 4: SQL Execution (optional)
         # ------------------------------------------------------------------ #
-        execution_stage: ExecutionStage | None = None
+        execution_result: dict[str, Any] | None = None
         if execute:
             try:
                 exec_result = await self.executor.execute_query(
@@ -223,12 +218,12 @@ class QueryPipeline:
                     timeout_seconds=timeout_seconds,
                     validate=False,  # Already validated in Stage 3
                 )
-                execution_stage = ExecutionStage(
-                    rows=exec_result["rows"],
-                    columns=exec_result["columns"],
-                    row_count=exec_result["row_count"],
-                    execution_time_ms=exec_result["execution_time_ms"],
-                )
+                execution_result = {
+                    "rows": exec_result["rows"],
+                    "columns": exec_result["columns"],
+                    "row_count": exec_result["row_count"],
+                    "execution_time_ms": exec_result["execution_time_ms"],
+                }
                 logger.info(
                     "pipeline_execution_done",
                     extra={
@@ -245,16 +240,18 @@ class QueryPipeline:
                 logger.error("pipeline_execution_failed", extra={"error": str(exc)})
                 raise PipelineExecutionError(f"SQL execution failed: {exc}") from exc
 
-        total_latency_ms = (time.perf_counter() - pipeline_start) * 1000.0
+        latency_ms = (time.perf_counter() - pipeline_start) * 1000.0
         logger.info(
             "pipeline_complete",
-            extra={"total_latency_ms": round(total_latency_ms, 2), "execute": execute},
+            extra={"total_latency_ms": round(latency_ms, 2), "execute": execute},
         )
 
         return PipelineResult(
             question=question,
-            retrieval=retrieval_stage,
-            generation=generation_stage,
-            execution=execution_stage,
-            total_latency_ms=total_latency_ms,
+            retrieved_tables=retrieved_tables,
+            generated_sql=llm_result.sql,
+            sql_explanation=llm_result.explanation,
+            validation_result=validation,
+            execution_result=execution_result,
+            latency_ms=latency_ms,
         )

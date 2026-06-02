@@ -1,37 +1,31 @@
-"""Tests for the SQL Generation Layer.
+"""Tests for the SQL Generation Layer and Route.
 
 Coverage:
-- SQLPromptBuilder: schema loading, enrichment, prompt formatting, fallback stubs.
-- _parse_response: valid JSON, markdown fences, missing fields, bad confidence types.
-- GeminiLLMService: successful call, parse retry, max-retries exhaustion, no API key.
-- POST /generate-sql: success, validation errors, 503 LLM unavailable, 503 max retries,
-  500 parse error.
+- SQLPromptBuilder: few-shot embedding, schema loading/formatting.
+- Response parsing: JSON cleaning, markdown fence stripping, confidence clamping.
+- GeminiLLMService: generation requests, caching, retry/backoff, mock client hooks.
+- Endpoint integration: POST /generate-sql with payload mapping.
 """
 
 from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock, patch
-
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.models.retrieval import TableRetrievalResult
+from app.services.prompt_builder import SQLPromptBuilder
 from app.services.llm_service import (
-    GenerationResult,
     GeminiLLMService,
+    GenerationResult,
     LLMMaxRetriesExceededError,
     LLMResponseParseError,
     LLMUnavailableError,
     _parse_response,
 )
-from app.services.prompt_builder import SQLPromptBuilder
+from app.models.retrieval import TableRetrievalResult
 from app.utils.config import Settings, get_settings
-
-# ---------------------------------------------------------------------------
-# Shared fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -46,10 +40,8 @@ def test_settings() -> Settings:
         schema_embedding_store_path=base.schema_embedding_store_path,
         default_retrieval_top_k=5,
         max_retrieval_top_k=25,
-        gemini_api_key="test-api-key-stub",
+        gemini_api_key="test-api-key",
         gemini_model_name="gemini-2.5-flash",
-        gemini_max_retries=2,
-        gemini_timeout_seconds=10.0,
     )
 
 
@@ -65,16 +57,22 @@ def llm_service(test_settings: Settings) -> GeminiLLMService:
 
 @pytest.fixture
 def sales_tables() -> list[TableRetrievalResult]:
+    # We keep the fixture name sales_tables to avoid breaking test signatures,
+    # but return Beaver academic tables
     return [
         TableRetrievalResult(
-            table_name="analytics.sales_orders",
+            table_name="beaver.students",
             score=0.91,
-            reason="Matched sales, region, revenue.",
+            reason="Matched student and department references.",
+            explanation="Matched student and department references.",
+            confidence=0.91,
         ),
         TableRetrievalResult(
-            table_name="analytics.calendar",
+            table_name="beaver.departments",
             score=0.78,
-            reason="Matched quarter, fiscal terms.",
+            reason="Matched department details.",
+            explanation="Matched department details.",
+            confidence=0.78,
         ),
     ]
 
@@ -88,10 +86,13 @@ class TestSQLPromptBuilder:
 
     def test_loads_schema_index_from_json(self, prompt_builder: SQLPromptBuilder):
         index = prompt_builder._load_schema_index()
-        assert "analytics.sales_orders" in index
-        assert "analytics.customers" in index
-        assert "support.tickets" in index
-        assert "marketing.campaign_performance" in index
+        assert isinstance(index, dict)
+        assert len(index) > 0
+        assert "beaver.students" in index
+
+        students = index["beaver.students"]
+        assert "student_id" in students.columns
+        assert "student_name" in students.columns
 
     def test_enriches_retrieved_tables_with_full_metadata(
         self, prompt_builder: SQLPromptBuilder, sales_tables: list[TableRetrievalResult]
@@ -99,16 +100,21 @@ class TestSQLPromptBuilder:
         index = prompt_builder._load_schema_index()
         enriched = prompt_builder._enrich_tables(sales_tables, index)
         assert len(enriched) == 2
-        # sales_orders should have its columns fully populated
-        sales = enriched[0]
-        assert sales.table_name == "analytics.sales_orders"
-        assert "order_id" in sales.columns
-        assert "enterprise_sales_amount" in sales.columns
+        assert enriched[0].table_name == "beaver.students"
+        assert enriched[1].table_name == "beaver.departments"
+
+        students = enriched[0]
+        assert "student_id" in students.columns
+        assert "student_name" in students.columns
 
     def test_fallback_stub_for_unknown_table(self, prompt_builder: SQLPromptBuilder):
         unknown = [
             TableRetrievalResult(
-                table_name="unknown.ghost_table", score=0.5, reason="N/A"
+                table_name="unknown.ghost_table",
+                score=0.5,
+                reason="N/A",
+                explanation="N/A",
+                confidence=0.5,
             )
         ]
         index = prompt_builder._load_schema_index()
@@ -123,10 +129,10 @@ class TestSQLPromptBuilder:
         index = prompt_builder._load_schema_index()
         enriched = prompt_builder._enrich_tables(sales_tables, index)
         block = prompt_builder._format_schema_block(enriched)
-        assert "analytics.sales_orders" in block
-        assert "enterprise_sales_amount" in block
-        assert "analytics.calendar" in block
-        assert "fiscal_quarter" in block
+        assert "beaver.students" in block
+        assert "student_name" in block
+        assert "beaver.departments" in block
+        assert "department_name" in block
 
     def test_format_examples_block_has_three_examples(
         self, prompt_builder: SQLPromptBuilder
@@ -140,12 +146,12 @@ class TestSQLPromptBuilder:
     def test_build_prompt_contains_question(
         self, prompt_builder: SQLPromptBuilder, sales_tables: list[TableRetrievalResult]
     ):
-        question = "What is the total revenue by region last quarter?"
+        question = "List students in the Computer Science department"
         prompt = prompt_builder.build_prompt(
             question=question, retrieved_tables=sales_tables
         )
         assert question in prompt
-        assert "analytics.sales_orders" in prompt
+        assert "beaver.students" in prompt
         assert "Few-Shot Examples" in prompt
         assert "Retrieved Schema Context" in prompt
         assert '{"sql"' in prompt or '"sql":' in prompt
@@ -159,30 +165,32 @@ class TestSQLPromptBuilder:
 class TestParseResponse:
 
     def test_parses_clean_json(self):
-        raw = '{"sql": "SELECT 1", "confidence": 0.87}'
-        sql, conf = _parse_response(raw)
+        raw = '{"sql": "SELECT 1", "confidence": 0.87, "explanation": "Simple select"}'
+        sql, conf, explanation = _parse_response(raw)
         assert sql == "SELECT 1"
         assert conf == pytest.approx(0.87)
+        assert explanation == "Simple select"
 
     def test_strips_markdown_fences(self):
-        raw = '```json\n{"sql": "SELECT 2", "confidence": 0.5}\n```'
-        sql, conf = _parse_response(raw)
+        raw = '```json\n{"sql": "SELECT 2", "confidence": 0.5, "explanation": "M"} \n```'
+        sql, conf, explanation = _parse_response(raw)
         assert sql == "SELECT 2"
         assert conf == pytest.approx(0.5)
+        assert explanation == "M"
 
     def test_clamps_confidence_above_one(self):
-        raw = '{"sql": "SELECT 3", "confidence": 1.5}'
-        _, conf = _parse_response(raw)
+        raw = '{"sql": "SELECT 3", "confidence": 1.5, "explanation": "M"}'
+        _, conf, _ = _parse_response(raw)
         assert conf == pytest.approx(1.0)
 
     def test_clamps_confidence_below_zero(self):
-        raw = '{"sql": "SELECT 4", "confidence": -0.3}'
-        _, conf = _parse_response(raw)
+        raw = '{"sql": "SELECT 4", "confidence": -0.3, "explanation": "M"}'
+        _, conf, _ = _parse_response(raw)
         assert conf == pytest.approx(0.0)
 
     def test_coerces_string_confidence(self):
-        raw = '{"sql": "SELECT 5", "confidence": "0.75"}'
-        _, conf = _parse_response(raw)
+        raw = '{"sql": "SELECT 5", "confidence": "0.75", "explanation": "M"}'
+        _, conf, _ = _parse_response(raw)
         assert conf == pytest.approx(0.75)
 
     def test_raises_on_invalid_json(self):
@@ -190,17 +198,17 @@ class TestParseResponse:
             _parse_response("this is not json")
 
     def test_raises_on_missing_sql_field(self):
-        raw = '{"confidence": 0.8}'
+        raw = '{"confidence": 0.8, "explanation": "M"}'
         with pytest.raises(LLMResponseParseError, match="'sql' field is missing"):
             _parse_response(raw)
 
     def test_raises_on_empty_sql(self):
-        raw = '{"sql": "   ", "confidence": 0.8}'
+        raw = '{"sql": "   ", "confidence": 0.8, "explanation": "M"}'
         with pytest.raises(LLMResponseParseError, match="'sql' field is missing"):
             _parse_response(raw)
 
     def test_raises_on_non_numeric_confidence(self):
-        raw = '{"sql": "SELECT 6", "confidence": "bad"}'
+        raw = '{"sql": "SELECT 6", "confidence": "bad", "explanation": "M"}'
         with pytest.raises(
             LLMResponseParseError, match="'confidence' field is not numeric"
         ):
@@ -208,7 +216,7 @@ class TestParseResponse:
 
 
 # ---------------------------------------------------------------------------
-# GeminiLLMService tests  (all Gemini API calls are mocked)
+# GeminiLLMService tests (all Gemini API calls are mocked)
 # ---------------------------------------------------------------------------
 
 
@@ -230,22 +238,23 @@ class TestGeminiLLMService:
         self, llm_service: GeminiLLMService
     ):
         good_json = (
-            '{"sql": "SELECT region FROM analytics.sales_orders", "confidence": 0.91}'
+            '{"sql": "SELECT student_name FROM beaver.students", "confidence": 0.91, "explanation": "Exp"}'
         )
         mock_client = self._make_mock_client(good_json)
         llm_service._client = mock_client
 
         result = llm_service.generate("some prompt")
 
-        assert result.sql == "SELECT region FROM analytics.sales_orders"
+        assert result.sql == "SELECT student_name FROM beaver.students"
         assert result.confidence == pytest.approx(0.91)
+        assert result.explanation == "Exp"
         assert result.attempt == 1
         assert result.latency_ms > 0
 
     def test_generate_retries_on_parse_error_then_succeeds(
         self, llm_service: GeminiLLMService
     ):
-        good_json = '{"sql": "SELECT 1", "confidence": 0.85}'
+        good_json = '{"sql": "SELECT 1", "confidence": 0.85, "explanation": "Exp"}'
         bad_part = MagicMock()
         bad_part.text = "not json at all"
         good_part = MagicMock()
@@ -293,7 +302,6 @@ class TestGeminiLLMService:
         no_key_settings = test_settings.model_copy(update={"gemini_api_key": None})
         service = GeminiLLMService(no_key_settings)
 
-        # google.generativeai is imported inside _load_client, so we patch it at the module level
         with patch("builtins.__import__", wraps=__import__):
             with pytest.raises(LLMUnavailableError, match="GEMINI_API_KEY"):
                 service._load_client()
@@ -312,17 +320,21 @@ def client() -> TestClient:
 
 def _make_valid_payload(top_k: int = 2) -> dict:
     return {
-        "question": "What is the total sales amount by region this quarter?",
+        "question": "What is the enrollment year of students in Computer Science?",
         "retrieved_tables": [
             {
-                "table_name": "analytics.sales_orders",
+                "table_name": "beaver.students",
                 "score": 0.91,
-                "reason": "Matched sales.",
+                "reason": "Matched students.",
+                "explanation": "Matched students.",
+                "confidence": 0.91,
             },
             {
-                "table_name": "analytics.calendar",
+                "table_name": "beaver.departments",
                 "score": 0.78,
-                "reason": "Matched quarter.",
+                "reason": "Matched departments.",
+                "explanation": "Matched departments.",
+                "confidence": 0.78,
             },
         ][:top_k],
     }
@@ -331,10 +343,11 @@ def _make_valid_payload(top_k: int = 2) -> dict:
 class TestGenerateSQLEndpoint:
 
     def test_success_returns_sql_and_confidence(self, client: TestClient):
-        good_json = '{"sql": "SELECT region, SUM(enterprise_sales_amount) FROM analytics.sales_orders GROUP BY region", "confidence": 0.89}'
+        good_json = '{"sql": "SELECT student_name FROM beaver.students", "confidence": 0.89}'
         mock_result = GenerationResult(
-            sql="SELECT region, SUM(enterprise_sales_amount) FROM analytics.sales_orders GROUP BY region",
+            sql="SELECT student_name FROM beaver.students",
             confidence=0.89,
+            explanation="Mocked SQL explanation.",
             raw_response=good_json,
             latency_ms=412.5,
             attempt=1,
