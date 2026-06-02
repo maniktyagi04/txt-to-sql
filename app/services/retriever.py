@@ -323,7 +323,12 @@ class SchemaRetriever:
         t_name = table.table_name.lower()
 
         if "departments" in t_name:
-            if "enrollment" in q_lower or "count" in q_lower or "highest" in q_lower or "most" in q_lower:
+            if (
+                "enrollment" in q_lower
+                or "count" in q_lower
+                or "highest" in q_lower
+                or "most" in q_lower
+            ):
                 return "Enrollment-related query requires department aggregation."
             if "course" in q_lower or "offer" in q_lower:
                 return "Requires department details for courses offered."

@@ -13,7 +13,7 @@ import time
 from starlette.concurrency import run_in_threadpool
 
 from app.models.retrieval import TableRetrievalResult
-from app.models.query import GenerationStage, RetrievalStage, ExecutionStage
+
 from app.services.retriever import SchemaRetriever
 from app.services.prompt_builder import SQLPromptBuilder
 from app.services.llm_service import (

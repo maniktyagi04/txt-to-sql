@@ -11,7 +11,6 @@ import sqlglot
 import time
 from typing import Any, TypedDict
 
-from app.services.retriever import SchemaRetriever
 from app.services.pipeline import QueryPipeline
 from app.services.executor import SQLExecutor
 from app.utils.logging import get_logger
@@ -232,9 +231,7 @@ class BenchmarkService:
                 )
                 # PipelineResult uses generated_sql attribute (not result.generation.sql)
                 generated_sql = result.generated_sql
-                retrieved_tables = [
-                    t.table_name for t in result.retrieved_tables
-                ]
+                retrieved_tables = [t.table_name for t in result.retrieved_tables]
             except Exception as exc:
                 logger.warning(
                     "benchmark_pipeline_failed_falling_back",
@@ -249,9 +246,7 @@ class BenchmarkService:
             # 2. Evaluate Retrieval Recall
             # Compute recall (did we retrieve all target tables?)
             has_all_at_5 = all(t in retrieved_tables[:5] for t in target_tables)
-            has_all_at_10 = all(
-                t in retrieved_tables[:10] for t in target_tables
-            )
+            has_all_at_10 = all(t in retrieved_tables[:10] for t in target_tables)
 
             if has_all_at_5:
                 retrieval_hits_at_5 += 1
@@ -259,11 +254,9 @@ class BenchmarkService:
                 retrieval_hits_at_10 += 1
 
             # 3. Evaluate SQL Parsing Success
-            is_parseable = False
             try:
                 sqlglot.parse_one(generated_sql, read="postgres")
                 parsing_successes += 1
-                is_parseable = True
             except Exception:
                 pass
 
@@ -279,9 +272,7 @@ class BenchmarkService:
             exec_error = None
             try:
                 # Execute Gold SQL
-                gold_res = await self.executor.execute_query(
-                    gold_sql, validate=False
-                )
+                gold_res = await self.executor.execute_query(gold_sql, validate=False)
                 # Execute Generated SQL
                 gen_res = await self.executor.execute_query(
                     generated_sql, validate=False
@@ -313,13 +304,9 @@ class BenchmarkService:
         # Compute averages
         metrics = {
             "retrieval_recall_at_5": round(retrieval_hits_at_5 / total_cases, 4),
-            "retrieval_recall_at_10": round(
-                retrieval_hits_at_10 / total_cases, 4
-            ),
+            "retrieval_recall_at_10": round(retrieval_hits_at_10 / total_cases, 4),
             "sql_exact_match_accuracy": round(exact_matches / total_cases, 4),
-            "sql_execution_match_accuracy": round(
-                execution_matches / total_cases, 4
-            ),
+            "sql_execution_match_accuracy": round(execution_matches / total_cases, 4),
             "parsing_success_rate": round(parsing_successes / total_cases, 4),
             "average_latency_ms": round(total_latency_ms / total_cases, 2),
         }
@@ -333,9 +320,7 @@ class BenchmarkService:
                 "exact_match": metrics["sql_exact_match_accuracy"],
                 "parsing_success": metrics["parsing_success_rate"],
             },
-            "execution": {
-                "execution_match": metrics["sql_execution_match_accuracy"]
-            },
+            "execution": {"execution_match": metrics["sql_execution_match_accuracy"]},
         }
 
         return {
@@ -343,7 +328,5 @@ class BenchmarkService:
             "metrics": metrics,
             "subtask_breakdown": subtask_breakdown,
             "error_analysis": {"failed_queries": failed_queries},
-            "overall_duration_ms": round(
-                (time.perf_counter() - t_start) * 1000.0, 2
-            ),
+            "overall_duration_ms": round((time.perf_counter() - t_start) * 1000.0, 2),
         }

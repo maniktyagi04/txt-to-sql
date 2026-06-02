@@ -75,8 +75,7 @@ class TestSQLValidator:
         res = validator.validate(sql)
         assert res["is_valid"] is False
         assert any(
-            "Table 'beaver.ghost_table' is not defined" in err
-            for err in res["errors"]
+            "Table 'beaver.ghost_table' is not defined" in err for err in res["errors"]
         )
 
     def test_cte_reference_succeeds(self, validator: SQLValidator):
@@ -137,7 +136,9 @@ class TestGenerateSQLEndpointWithValidator:
 
     def test_successful_validation_returns_200(self, client: TestClient):
         # Valid generated SQL
-        valid_sql = "SELECT student_id FROM beaver.students WHERE enrollment_year = 2023;"
+        valid_sql = (
+            "SELECT student_id FROM beaver.students WHERE enrollment_year = 2023;"
+        )
         mock_result = GenerationResult(
             sql=valid_sql,
             confidence=0.91,
@@ -222,4 +223,6 @@ class TestGenerateSQLEndpointWithValidator:
         assert response.status_code == 422
         data = response.json()
         assert "errors" in data
-        assert any("failed validation" in err["message"].lower() for err in data["errors"])
+        assert any(
+            "failed validation" in err["message"].lower() for err in data["errors"]
+        )

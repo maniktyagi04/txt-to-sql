@@ -126,7 +126,7 @@ def _parse_response(raw: str) -> tuple[str, float, str]:
 
     # Dynamic explanation fallback if missing or empty
     if not isinstance(explanation_raw, str) or not explanation_raw.strip():
-        explanation = f"Generated query targeting Beaver database tables to calculate requested records."
+        explanation = "Generated query targeting Beaver database tables to calculate requested records."
     else:
         explanation = explanation_raw.strip()
 

@@ -104,7 +104,10 @@ def test_semantic_retrieval(retriever: SchemaRetriever):
     assert len(courses_results) == 2
     assert courses_results[0].table_name == "beaver.courses"
     assert courses_results[0].score > 0.0
-    assert "course" in courses_results[0].reason.lower() or "beaver" in courses_results[0].reason.lower()
+    assert (
+        "course" in courses_results[0].reason.lower()
+        or "beaver" in courses_results[0].reason.lower()
+    )
 
     # Question about student enrollment should favor students or enrollments
     enrollment_results = retriever.retrieve(

@@ -26,15 +26,12 @@ from app.models.retrieval import TableRetrievalResult
 from app.services.executor import SQLTimeoutError
 from app.utils.config import get_settings
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
 VALID_SQL = (
-    "SELECT student_name "
-    "FROM beaver.students "
-    "ORDER BY student_name LIMIT 5;"
+    "SELECT student_name " "FROM beaver.students " "ORDER BY student_name LIMIT 5;"
 )
 
 MOCK_RETRIEVED_TABLES = [

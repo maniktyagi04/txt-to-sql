@@ -172,7 +172,9 @@ class TestParseResponse:
         assert explanation == "Simple select"
 
     def test_strips_markdown_fences(self):
-        raw = '```json\n{"sql": "SELECT 2", "confidence": 0.5, "explanation": "M"} \n```'
+        raw = (
+            '```json\n{"sql": "SELECT 2", "confidence": 0.5, "explanation": "M"} \n```'
+        )
         sql, conf, explanation = _parse_response(raw)
         assert sql == "SELECT 2"
         assert conf == pytest.approx(0.5)
@@ -237,9 +239,7 @@ class TestGeminiLLMService:
     def test_generate_returns_result_on_first_attempt(
         self, llm_service: GeminiLLMService
     ):
-        good_json = (
-            '{"sql": "SELECT student_name FROM beaver.students", "confidence": 0.91, "explanation": "Exp"}'
-        )
+        good_json = '{"sql": "SELECT student_name FROM beaver.students", "confidence": 0.91, "explanation": "Exp"}'
         mock_client = self._make_mock_client(good_json)
         llm_service._client = mock_client
 
@@ -343,7 +343,9 @@ def _make_valid_payload(top_k: int = 2) -> dict:
 class TestGenerateSQLEndpoint:
 
     def test_success_returns_sql_and_confidence(self, client: TestClient):
-        good_json = '{"sql": "SELECT student_name FROM beaver.students", "confidence": 0.89}'
+        good_json = (
+            '{"sql": "SELECT student_name FROM beaver.students", "confidence": 0.89}'
+        )
         mock_result = GenerationResult(
             sql="SELECT student_name FROM beaver.students",
             confidence=0.89,

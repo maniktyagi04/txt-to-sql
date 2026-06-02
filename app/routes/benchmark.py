@@ -45,9 +45,15 @@ class BenchmarkResponse(BaseModel):
             }
         ],
     )
-    subtask_breakdown: dict[str, Any] = Field(..., description="Subtask performance breakdown.")
-    error_analysis: dict[str, Any] = Field(..., description="Detailed logs of failed queries.")
-    overall_duration_ms: float = Field(..., description="Total execution time of the benchmark.")
+    subtask_breakdown: dict[str, Any] = Field(
+        ..., description="Subtask performance breakdown."
+    )
+    error_analysis: dict[str, Any] = Field(
+        ..., description="Detailed logs of failed queries."
+    )
+    overall_duration_ms: float = Field(
+        ..., description="Total execution time of the benchmark."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +87,10 @@ async def run_benchmark(
 ) -> BenchmarkResponse:
     logger.info("benchmark_execution_started", extra={"dry_run": request.dry_run})
     result = await service.run_benchmark()
-    logger.info("benchmark_execution_completed", extra={"duration_ms": result["overall_duration_ms"]})
+    logger.info(
+        "benchmark_execution_completed",
+        extra={"duration_ms": result["overall_duration_ms"]},
+    )
     return BenchmarkResponse(
         total_queries=result["total_queries"],
         metrics=result["metrics"],

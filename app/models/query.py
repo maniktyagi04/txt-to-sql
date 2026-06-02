@@ -81,18 +81,24 @@ class QueryResponse(BaseModel):
 
     question: str = Field(..., description="Original natural language question.")
     retrieved_tables: list[TableRetrievalResult] = Field(
-        ..., description="List of retrieved tables with their retrieval scores and explanations."
+        ...,
+        description="List of retrieved tables with their retrieval scores and explanations.",
     )
     generated_sql: str = Field(..., description="The generated SQL query.")
-    sql_explanation: str = Field(..., description="Explanation of the generated SQL query.")
+    sql_explanation: str = Field(
+        ..., description="Explanation of the generated SQL query."
+    )
     validation_result: dict[str, Any] = Field(
-        ..., description="Validation result indicating whether the query is valid and listing any errors."
+        ...,
+        description="Validation result indicating whether the query is valid and listing any errors.",
     )
     execution_result: dict[str, Any] | None = Field(
         default=None,
         description="Execution result rows and column names, or null when execution is skipped/fails.",
     )
-    latency_ms: float = Field(..., description="Total pipeline latency in milliseconds.")
+    latency_ms: float = Field(
+        ..., description="Total pipeline latency in milliseconds."
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

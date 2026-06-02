@@ -30,7 +30,9 @@ def init_databases(database_dir: str | Path = "app/database") -> None:
                 legacy_file.unlink()
                 logger.info("cleaned_up_legacy_database", extra={"file": legacy})
             except Exception as exc:
-                logger.warning("legacy_cleanup_failed", extra={"file": legacy, "error": str(exc)})
+                logger.warning(
+                    "legacy_cleanup_failed", extra={"file": legacy, "error": str(exc)}
+                )
 
     logger.info("sqlite_databases_initialized", extra={"db_dir": str(db_path)})
 
