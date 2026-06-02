@@ -10,4 +10,6 @@ __pycache__/
 !.env.example
 scratch/
 app/database/*.db
-
+.coverage
+coverage.xml
+htmlcov/
