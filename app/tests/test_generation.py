@@ -290,9 +290,9 @@ def _make_valid_payload(top_k: int = 2) -> dict:
 class TestGenerateSQLEndpoint:
 
     def test_success_returns_sql_and_confidence(self, client: TestClient):
-        good_json = '{"sql": "SELECT region, SUM(amount) FROM analytics.sales_orders GROUP BY region", "confidence": 0.89}'
+        good_json = '{"sql": "SELECT region, SUM(enterprise_sales_amount) FROM analytics.sales_orders GROUP BY region", "confidence": 0.89}'
         mock_result = GenerationResult(
-            sql="SELECT region, SUM(amount) FROM analytics.sales_orders GROUP BY region",
+            sql="SELECT region, SUM(enterprise_sales_amount) FROM analytics.sales_orders GROUP BY region",
             confidence=0.89,
             raw_response=good_json,
             latency_ms=412.5,

@@ -12,6 +12,7 @@ from app.services.llm_service import (
     LLMResponseParseError,
     LLMServiceError,
 )
+from app.services.validator import SQLValidator
 from app.utils.config import Settings, get_settings
 from app.utils.logging import get_logger
 
@@ -33,6 +34,11 @@ def get_llm_service() -> GeminiLLMService:
     return GeminiLLMService(get_settings())
 
 
+@lru_cache
+def get_sql_validator() -> SQLValidator:
+    return SQLValidator(get_settings())
+
+
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
@@ -52,6 +58,7 @@ async def generate_sql(
     request: GenerateSQLRequest,
     prompt_builder: SQLPromptBuilder = Depends(get_prompt_builder),
     llm_service: GeminiLLMService = Depends(get_llm_service),
+    sql_validator: SQLValidator = Depends(get_sql_validator),
     settings: Settings = Depends(get_settings),
 ) -> GenerateSQLResponse:
     logger.info(
@@ -104,6 +111,22 @@ async def generate_sql(
             detail="SQL generation failed.",
         ) from exc
 
+    # Step 3 — Validate generated SQL query
+    validation = sql_validator.validate(result.sql)
+    if not validation["is_valid"]:
+        logger.error(
+            "generated_sql_validation_failed",
+            extra={
+                "sql": result.sql,
+                "errors": validation["errors"],
+                "question": request.question,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Generated SQL failed validation. Errors: {validation['errors']}",
+        )
+
     logger.info(
         "generate_sql_completed",
         extra={
@@ -116,3 +139,4 @@ async def generate_sql(
     )
 
     return GenerateSQLResponse(sql=result.sql, confidence=result.confidence)
+
