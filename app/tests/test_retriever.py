@@ -54,7 +54,7 @@ def mock_encode(self, documents: list[str]) -> list[list[float]]:
 
 
 # Patch SchemaRetriever._encode at the class level to run tests network-free
-SchemaRetriever._encode = mock_encode
+SchemaRetriever._encode = mock_encode  # type: ignore[method-assign]
 
 
 @pytest.fixture
