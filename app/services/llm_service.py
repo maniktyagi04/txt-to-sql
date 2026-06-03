@@ -297,7 +297,11 @@ class GeminiLLMService:
         if self.settings.environment != "test" and not api_key:
             api_key = "mock-key"
 
-        if self.settings.environment != "test" and api_key and api_key.startswith("mock"):
+        if (
+            self.settings.environment != "test"
+            and api_key
+            and api_key.startswith("mock")
+        ):
             self._client = "mock_client"
             logger.info("gemini_mock_client_initialized")
             return self._client
@@ -339,55 +343,72 @@ class GeminiLLMService:
         if self.settings.environment != "test" and not api_key:
             api_key = "mock-key"
 
-        if self.settings.environment != "test" and api_key and api_key.startswith("mock"):
+        if (
+            self.settings.environment != "test"
+            and api_key
+            and api_key.startswith("mock")
+        ):
             # Mock mode: extract the question and find a matching query
             question = ""
             q_match = re.search(r"## Question\s*\n\s*(.*?)\s*\n", prompt)
             if q_match:
                 question = q_match.group(1).strip()
-            
+
             if not question:
                 parts = prompt.split("## Question")
                 if len(parts) > 1:
                     question = parts[-1].split("##")[0].strip()
-            
+
             # Find in parquet files or fallback
             gold_sql = ""
             from app.services.benchmark import BenchmarkService
+
             try:
-                fallback = BenchmarkService._get_fallback_suite(None) # type: ignore
+                fallback = BenchmarkService._get_fallback_suite(None)  # type: ignore
                 for c in fallback:
-                    if c["question"].lower() in question.lower() or question.lower() in c["question"].lower():
+                    if (
+                        c["question"].lower() in question.lower()
+                        or question.lower() in c["question"].lower()
+                    ):
                         gold_sql = c["gold_sql"]
                         break
             except Exception:
                 pass
-            
+
             if not gold_sql:
                 import pandas as pd
                 from pathlib import Path
+
                 db_dir = Path(self.settings.beaver_db_dir)
-                for name in ["dw-00000-of-00001", "neutron-00000-of-00001", "nova-00000-of-00001", "dw_real-00000-of-00001"]:
+                for name in [
+                    "dw-00000-of-00001",
+                    "neutron-00000-of-00001",
+                    "nova-00000-of-00001",
+                    "dw_real-00000-of-00001",
+                ]:
                     file_path = db_dir / f"{name}.parquet"
                     if file_path.exists():
                         try:
                             df = pd.read_parquet(str(file_path))
                             for _, row in df.iterrows():
-                                if row["question"].lower() in question.lower() or question.lower() in row["question"].lower():
+                                if (
+                                    row["question"].lower() in question.lower()
+                                    or question.lower() in row["question"].lower()
+                                ):
                                     gold_sql = row["sql"]
                                     break
                             if gold_sql:
                                 break
                         except Exception:
                             pass
-            
+
             if not gold_sql:
                 gold_sql = "SELECT * FROM dw.ACADEMIC_TERMS LIMIT 5;"
-            
+
             mock_res = {
                 "sql": gold_sql,
                 "confidence": 0.95,
-                "explanation": f"Mock generated query targeting database to resolve: {question}"
+                "explanation": f"Mock generated query targeting database to resolve: {question}",
             }
             return json.dumps(mock_res)
 
