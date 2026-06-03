@@ -10,6 +10,7 @@ __pycache__/
 !.env.example
 scratch/
 app/database/*.db
+app/database/*.parquet
 app/database/embeddings/*.json
 .coverage
 coverage.xml
