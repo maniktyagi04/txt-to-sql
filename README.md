@@ -255,7 +255,42 @@ The FastAPI documentation page will be available at `http://localhost:8000/docs`
 
 ---
 
+## 🖼️ Service Screenshots (localhost:8000)
+
+> FastAPI service running locally with the real BEAVER dataset. All screenshots captured from `http://127.0.0.1:8000/docs`.
+
+### `GET /health` — Service Health Check
+
+![GET /health endpoint showing {"status": "healthy"} response](docs/screenshots/health_endpoint.png)
+
+---
+
+### `POST /retrieve` — Semantic Schema Retrieval
+
+![POST /retrieve endpoint showing top-K table retrieval with confidence scores from BEAVER schema](docs/screenshots/retrieve_endpoint.png)
+
+---
+
+### `POST /generate-sql` — SQL Generation
+
+![POST /generate-sql endpoint showing natural language to SQL generation with confidence score and validation warnings](docs/screenshots/generate_sql_endpoint.png)
+
+---
+
+### `POST /benchmark` — Benchmark Evaluation Suite
+
+![POST /benchmark endpoint showing evaluation metrics including SQL exact match accuracy and execution accuracy across BEAVER datasets](docs/screenshots/benchmark_endpoint.png)
+
+---
+
+### `POST /execute` — SQL Execution Engine
+
+![POST /execute endpoint showing validated SQL execution returning rows, columns, row count and execution time](docs/screenshots/execute_endpoint.png)
+
+---
+
 ## 📖 API Documentation & Examples
+
 
 ### 1. `GET /health`
 Verifies API readiness, database attachments, and caching layers.
