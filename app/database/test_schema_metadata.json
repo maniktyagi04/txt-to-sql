@@ -1,0 +1,48 @@
+{
+  "tables": [
+    {
+      "table_name": "beaver.departments",
+      "description": "Departments details including department ID, name, and total staff/student headcount.",
+      "columns": [
+        "department_id",
+        "department_name",
+        "headcount"
+      ],
+      "tags": ["departments", "organization", "headcount"]
+    },
+    {
+      "table_name": "beaver.students",
+      "description": "Student details including student ID, name, major department, and enrollment year.",
+      "columns": [
+        "student_id",
+        "student_name",
+        "department_id",
+        "enrollment_year"
+      ],
+      "tags": ["students", "enrolled", "academic"]
+    },
+    {
+      "table_name": "beaver.courses",
+      "description": "Course catalog including course name, offered department, type (online or in-person), and credit hours.",
+      "columns": [
+        "course_id",
+        "course_name",
+        "department_id",
+        "course_type",
+        "credits"
+      ],
+      "tags": ["courses", "classes", "catalog", "online", "computer science"]
+    },
+    {
+      "table_name": "beaver.enrollments",
+      "description": "Student course enrollment facts mapping students to registered courses and grades.",
+      "columns": [
+        "enrollment_id",
+        "student_id",
+        "course_id",
+        "grade"
+      ],
+      "tags": ["enrollments", "registration", "student courses"]
+    }
+  ]
+}

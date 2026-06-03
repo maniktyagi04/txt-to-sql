@@ -283,14 +283,30 @@ class SchemaRetriever:
         return self._model
 
     def _schema_document(self, table: SchemaTableMetadata) -> str:
-        return " ".join(
-            [
-                f"table: {table.table_name}",
-                f"description: {table.description}",
-                f"columns: {', '.join(table.columns)}",
-                f"tags: {', '.join(table.tags)}",
-            ]
-        ).strip()
+        """Build a rich text document for embedding, including types and FK relationships."""
+        parts = [
+            f"table: {table.table_name}",
+            f"description: {table.description}",
+            f"columns: {', '.join(table.columns)}",
+        ]
+
+        if table.column_types:
+            type_pairs = ", ".join(
+                f"{col} {typ}" for col, typ in list(table.column_types.items())[:10]
+            )
+            parts.append(f"column types: {type_pairs}")
+
+        if table.foreign_keys:
+            fk_parts = ", ".join(
+                f"{fk['from_col']} -> {fk['to_table']}.{fk['to_col']}"
+                for fk in table.foreign_keys[:5]
+            )
+            parts.append(f"foreign keys: {fk_parts}")
+
+        if table.tags:
+            parts.append(f"tags: {', '.join(table.tags)}")
+
+        return " ".join(parts).strip()
 
     def _schema_fingerprint(self, schema_tables: list[SchemaTableMetadata]) -> str:
         canonical_payload = json.dumps(
@@ -319,48 +335,33 @@ class SchemaRetriever:
         table: SchemaTableMetadata,
         score: float,
     ) -> str:
-        q_lower = question.lower()
-        t_name = table.table_name.lower()
-
-        if "departments" in t_name:
-            if (
-                "enrollment" in q_lower
-                or "count" in q_lower
-                or "highest" in q_lower
-                or "most" in q_lower
-            ):
-                return "Enrollment-related query requires department aggregation."
-            if "course" in q_lower or "offer" in q_lower:
-                return "Requires department details for courses offered."
-            return "Provides department metadata for major and student classification."
-        elif "students" in t_name:
-            if "enrolled" in q_lower or "course" in q_lower:
-                return "Maps student identity details to course enrollment facts."
-            return "Retrieves student profiles, names, and academic affiliations."
-        elif "courses" in t_name:
-            if "online" in q_lower:
-                return "Enables filtering courses by delivery mode (online/in-person)."
-            if "computer science" in q_lower or "cs" in q_lower:
-                return "Contains course catalog and offering department fields."
-            return "Provides details of course catalog, credits, and titles."
-        elif "enrollments" in t_name:
-            return "Provides pivot mappings between students and their course registrations."
-
+        """Build a human-readable reason for selecting this table."""
         question_terms = self._tokens(question)
         schema_text = self._schema_document(table)
         schema_terms = self._tokens(schema_text)
         matched_terms = sorted(question_terms.intersection(schema_terms))
 
+        # Extract schema prefix (e.g. 'dw', 'nova', 'neutron') and bare table name
+        parts = table.table_name.split(".", 1)
+        schema_prefix = parts[0] if len(parts) == 2 else ""
+        bare_table = parts[1] if len(parts) == 2 else parts[0]
+
         if matched_terms:
             shown_terms = ", ".join(matched_terms[:5])
+            fk_hint = ""
+            if table.foreign_keys:
+                related = ", ".join(fk["to_table"] for fk in table.foreign_keys[:2])
+                fk_hint = f" Related tables: {related}."
+            schema_label = f" [{schema_prefix.upper()}]" if schema_prefix else ""
             return (
-                f"Matched schema metadata terms ({shown_terms}) with semantic "
-                f"similarity score {score:.2f}."
+                f"{schema_label} '{bare_table}' matched on terms ({shown_terms}) "
+                f"with score {score:.2f}.{fk_hint}"
             )
 
+        schema_label = f" [{schema_prefix.upper()}]" if schema_prefix else ""
         return (
-            "Selected by semantic similarity between the question and table "
-            f"metadata with score {score:.2f}."
+            f"{schema_label} '{bare_table}' selected by semantic similarity "
+            f"(score {score:.2f})."
         )
 
     def _tokens(self, text: str) -> set[str]:

@@ -1,40 +1,197 @@
-"""Database initialization and seeding module for the Text-to-SQL backend.
+"""Database initialization module for the Text-to-SQL backend.
 
-Creates the physical SQLite database file (beaver.db) matching the Beaver
-academic schema metadata and populates it with realistic seed data.
+Copies the real BEAVER SQLite database files (dw.db, nova.db, neutron.db)
+from a configurable source directory into the application database directory.
+
+Source resolution order:
+1. BEAVER_DB_SOURCE_DIR environment variable
+2. Sibling 'beaver_db' folder next to the project root
+3. ~/Downloads/beaver_db (local development convenience)
+
+If the target files already exist they are NOT overwritten (idempotent).
 """
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from pathlib import Path
+
+from app.utils.config import get_settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Names of the real BEAVER database files
+BEAVER_DB_NAMES = ("dw", "nova", "neutron")
 
-def init_databases(database_dir: str | Path = "app/database") -> None:
-    """Initialize SQLite database files and seed them if they do not exist."""
+# Names of the BEAVER benchmark parquet files
+BEAVER_PARQUET_NAMES = (
+    "dw-00000-of-00001",
+    "neutron-00000-of-00001",
+    "nova-00000-of-00001",
+    "dw_real-00000-of-00001",
+)
+
+# Default source locations to search (in priority order)
+_DEFAULT_SOURCE_CANDIDATES = [
+    Path.home() / "Downloads" / "beaver_db",
+    Path(__file__).resolve().parent.parent.parent / "beaver_db",
+]
+
+
+def _find_source_dir(configured_source: str) -> Path | None:
+    """Resolve the source directory that contains the BEAVER .db files."""
+    # 1. Explicit config takes priority
+    if configured_source:
+        candidate = Path(configured_source).expanduser().resolve()
+        if candidate.is_dir():
+            return candidate
+        logger.warning(
+            "beaver_db_source_not_found",
+            extra={"configured_source": configured_source},
+        )
+
+    # 2. Fall back to well-known locations
+    for candidate in _DEFAULT_SOURCE_CANDIDATES:
+        if candidate.is_dir():
+            return candidate
+
+    return None
+
+
+def init_databases(
+    database_dir: str | Path = "app/database",
+    source_dir: str = "",
+) -> None:
+    """Initialize BEAVER database files in *database_dir*.
+
+    Copies dw.db, nova.db, and neutron.db from *source_dir* (or a known
+    default location) into *database_dir* if they do not already exist.
+
+    Args:
+        database_dir: Directory where the .db files should live.
+        source_dir: Path to the folder containing the source .db files.
+                    Leave empty to auto-detect from environment or defaults.
+    """
     db_path = Path(database_dir)
     db_path.mkdir(parents=True, exist_ok=True)
 
-    # 1. Initialize beaver.db
-    beaver_db = db_path / "beaver.db"
-    init_beaver_db(beaver_db)
+    settings = get_settings()
+    if settings.environment == "test":
+        beaver_db = db_path / "beaver.db"
+        init_beaver_db(beaver_db)
+        return
 
-    # Clean up legacy db files if present to prevent confusion
-    for legacy in ("analytics.db", "support.db", "marketing.db"):
+    # Remove legacy fake databases to prevent confusion
+    for legacy in ("beaver.db", "analytics.db", "support.db", "marketing.db"):
         legacy_file = db_path / legacy
         if legacy_file.exists():
             try:
                 legacy_file.unlink()
-                logger.info("cleaned_up_legacy_database", extra={"file": legacy})
+                logger.info("removed_legacy_database", extra={"file": legacy})
             except Exception as exc:
                 logger.warning(
-                    "legacy_cleanup_failed", extra={"file": legacy, "error": str(exc)}
+                    "legacy_cleanup_failed",
+                    extra={"file": legacy, "error": str(exc)},
                 )
 
-    logger.info("sqlite_databases_initialized", extra={"db_dir": str(db_path)})
+    # Resolve the source of the real BEAVER databases
+    resolved_source = _find_source_dir(source_dir)
+
+    if resolved_source is None:
+        # In test / CI environments the databases are pre-placed in db_path.
+        # Check if all files already exist — if so, nothing to do.
+        missing = [
+            name for name in BEAVER_DB_NAMES if not (db_path / f"{name}.db").exists()
+        ]
+        if not missing:
+            logger.info(
+                "beaver_databases_already_present",
+                extra={"db_dir": str(db_path)},
+            )
+            return
+
+        logger.warning(
+            "beaver_db_source_not_found_skip",
+            extra={
+                "db_dir": str(db_path),
+                "missing": missing,
+                "hint": "Set BEAVER_DB_SOURCE_DIR env var or place dw.db/nova.db/neutron.db in app/database/",
+            },
+        )
+        return
+
+    # Copy each BEAVER database file if not already present
+    copied = []
+    skipped = []
+    for name in BEAVER_DB_NAMES:
+        src = resolved_source / f"{name}.db"
+        dst = db_path / f"{name}.db"
+
+        if dst.exists():
+            skipped.append(name)
+            logger.info(
+                "beaver_db_already_exists",
+                extra={"schema": name, "path": str(dst)},
+            )
+            continue
+
+        if not src.exists():
+            logger.error(
+                "beaver_db_source_missing",
+                extra={"schema": name, "source": str(src)},
+            )
+            continue
+
+        shutil.copy2(src, dst)
+        copied.append(name)
+        logger.info(
+            "beaver_db_copied",
+            extra={"schema": name, "src": str(src), "dst": str(dst)},
+        )
+
+    # Copy each BEAVER parquet file if not already present
+    parquet_src_dir = None
+    if resolved_source:
+        if (resolved_source / "dw-00000-of-00001.parquet").exists():
+            parquet_src_dir = resolved_source
+        elif (resolved_source.parent / "dw-00000-of-00001.parquet").exists():
+            parquet_src_dir = resolved_source.parent
+
+    if parquet_src_dir:
+        for name in BEAVER_PARQUET_NAMES:
+            src = parquet_src_dir / f"{name}.parquet"
+            dst = db_path / f"{name}.parquet"
+
+            if dst.exists():
+                logger.info(
+                    "beaver_parquet_already_exists",
+                    extra={"parquet_name": name, "path": str(dst)},
+                )
+                continue
+
+            if not src.exists():
+                logger.error(
+                    "beaver_parquet_source_missing",
+                    extra={"parquet_name": name, "source": str(src)},
+                )
+                continue
+
+            shutil.copy2(src, dst)
+            logger.info(
+                "beaver_parquet_copied",
+                extra={"parquet_name": name, "src": str(src), "dst": str(dst)},
+            )
+
+    logger.info(
+        "beaver_databases_initialized",
+        extra={
+            "db_dir": str(db_path),
+            "copied": copied,
+            "skipped": skipped,
+        },
+    )
 
 
 def init_beaver_db(db_path: Path) -> None:

@@ -60,14 +60,15 @@ class SQLExecutor:
     ) -> None:
         self.settings = settings
         self.validator = validator or SQLValidator(settings)
-        # Database directory defaults to app/database
-        self.db_dir = Path("app/database")
+        # Database directory sourced from configuration — never hardcoded
+        self.db_dir = Path(settings.beaver_db_dir)
 
     async def execute_query(
         self,
         sql_query: str,
         timeout_seconds: float = 5.0,
         validate: bool = True,
+        default_db: str | None = None,
     ) -> ExecutionResult:
         """Asynchronously executes a SQL query in a thread pool to avoid blocking the event loop.
 
@@ -75,6 +76,7 @@ class SQLExecutor:
             sql_query: The SQL query string to run.
             timeout_seconds: Strict query execution timeout limit.
             validate: Whether to run the SQLValidator pipeline first.
+            default_db: Optional default database to open directly (e.g. "dw").
 
         Returns:
             ExecutionResult containing formatted rows and query metadata.
@@ -85,6 +87,7 @@ class SQLExecutor:
             sql_query=sql_query,
             timeout_seconds=timeout_seconds,
             validate=validate,
+            default_db=default_db,
         )
 
     def _execute_query_sync(
@@ -92,6 +95,7 @@ class SQLExecutor:
         sql_query: str,
         timeout_seconds: float,
         validate: bool,
+        default_db: str | None = None,
     ) -> ExecutionResult:
         """Synchronously connects to SQLite, validates, compiles, and runs the query under safety guardrails."""
         start_time = time.perf_counter()
@@ -102,6 +106,7 @@ class SQLExecutor:
                 "sql_length": len(sql_query),
                 "timeout_seconds": timeout_seconds,
                 "validate": validate,
+                "default_db": default_db,
             },
         )
 
@@ -119,25 +124,44 @@ class SQLExecutor:
         # Ensure database directory and databases are present
         if not self.db_dir.exists():
             raise SQLExecutionError(
-                "Database directory does not exist. Call init_databases first."
+                f"Database directory '{self.db_dir}' does not exist. "
+                "Run init_databases() or set BEAVER_DB_DIR env var."
             )
 
         # 2. Establish connection and attach schemas
-        # We start with an in-memory db as anchor, and attach analytics, support, and marketing databases.
-        conn = sqlite3.connect(":memory:")
+        # Start with the default/anchor database, then attach each BEAVER schema.
+        db_to_open = ":memory:"
+        if default_db:
+            db_file = self.db_dir / f"{default_db}.db"
+            if db_file.exists():
+                db_to_open = str(db_file)
+
+        conn = sqlite3.connect(db_to_open)
         cursor = conn.cursor()
 
+        # Determine which schemas to attach from configuration
+        schema_names = self.settings.beaver_db_names
+
         try:
-            # Attach individual schemas
-            for schema in ("beaver",):
+            # Attach each BEAVER database as its schema identifier (dw, nova, neutron)
+            attached: list[str] = []
+            for schema in schema_names:
                 db_file = self.db_dir / f"{schema}.db"
                 if not db_file.exists():
-                    raise SQLExecutionError(
-                        f"Database schema file '{db_file}' is missing. Initialize first."
+                    logger.warning(
+                        "beaver_db_file_missing",
+                        extra={"schema": schema, "path": str(db_file)},
                     )
-
-                # Attach database as the schema identifier
+                    continue
                 conn.execute(f"ATTACH DATABASE '{db_file}' AS {schema};")
+                attached.append(schema)
+
+            if not attached:
+                raise SQLExecutionError(
+                    f"No BEAVER database files found in '{self.db_dir}'. "
+                    f"Expected: {[f'{s}.db' for s in schema_names]}. "
+                    "Copy the files or set BEAVER_DB_SOURCE_DIR."
+                )
 
             # 3. Security Authorizer Injection
             # Compile-time protection denying DML/DDL operations

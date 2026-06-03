@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "development", "staging", "production", "test"]
@@ -51,6 +51,29 @@ class Settings(BaseSettings):
     # Security & Production Settings
     allowed_hosts: list[str] = Field(default_factory=lambda: ["*"])
     rate_limit_requests_per_minute: int = Field(default=60, ge=1)
+
+    # BEAVER Database Configuration
+    # Directory where the live BEAVER .db files live (relative to project root)
+    beaver_db_dir: str = Field(default="app/database")
+    # Ordered list of schema names to attach during query execution
+    beaver_db_names: list[str] = Field(
+        default_factory=lambda: ["dw", "nova", "neutron"]
+    )
+    # Source directory to copy BEAVER databases from (used by init_db).
+    # Set BEAVER_DB_SOURCE_DIR env var to override (e.g. ~/Downloads/beaver_db).
+    beaver_db_source_dir: str = Field(
+        default="",
+        description="Path to folder containing dw.db, nova.db, neutron.db source files.",
+    )
+
+    @model_validator(mode="after")
+    def adjust_for_environment(self) -> Settings:
+        if self.environment == "test":
+            if self.schema_metadata_path == "app/database/schema_metadata.json":
+                self.schema_metadata_path = "app/database/test_schema_metadata.json"
+            if self.beaver_db_names == ["dw", "nova", "neutron"]:
+                self.beaver_db_names = ["beaver"]
+        return self
 
     # Enable reading from .env file
     model_config = SettingsConfigDict(

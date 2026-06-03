@@ -6,6 +6,15 @@ class SchemaTableMetadata(BaseModel):
     description: str = Field(default="", examples=["Order-level sales facts."])
     columns: list[str] = Field(default_factory=list, examples=[["order_id", "region"]])
     tags: list[str] = Field(default_factory=list, examples=[["sales", "orders"]])
+    # Richer schema info captured from real BEAVER databases
+    column_types: dict[str, str] = Field(
+        default_factory=dict,
+        examples=[{"order_id": "INTEGER", "region": "TEXT"}],
+    )
+    foreign_keys: list[dict[str, str]] = Field(
+        default_factory=list,
+        examples=[[{"from_col": "dept_id", "to_table": "departments", "to_col": "id"}]],
+    )
 
 
 class RetrieveRequest(BaseModel):

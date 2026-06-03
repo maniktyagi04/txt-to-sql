@@ -28,6 +28,10 @@ class BenchmarkRequest(BaseModel):
         default=False,
         description="Whether to run benchmark against mock pipelines or dry run without LLM calls.",
     )
+    limit_per_domain: int = Field(
+        default=10,
+        description="Number of queries to load and run per parquet file/domain (default: 10).",
+    )
 
 
 class BenchmarkResponse(BaseModel):
@@ -53,6 +57,15 @@ class BenchmarkResponse(BaseModel):
     )
     overall_duration_ms: float = Field(
         ..., description="Total execution time of the benchmark."
+    )
+    dataset_statistics: dict[str, Any] = Field(
+        default_factory=dict, description="Statistics of the loaded datasets."
+    )
+    failure_categorization: dict[str, Any] = Field(
+        default_factory=dict, description="Categorization of failures."
+    )
+    benchmark_summary: dict[str, Any] = Field(
+        default_factory=dict, description="Summary and recommendations."
     )
 
 
@@ -85,8 +98,17 @@ async def run_benchmark(
     request: BenchmarkRequest,
     service: BenchmarkService = Depends(get_benchmark_service),
 ) -> BenchmarkResponse:
-    logger.info("benchmark_execution_started", extra={"dry_run": request.dry_run})
-    result = await service.run_benchmark()
+    logger.info(
+        "benchmark_execution_started",
+        extra={
+            "dry_run": request.dry_run,
+            "limit_per_domain": request.limit_per_domain,
+        },
+    )
+    result = await service.run_benchmark(
+        dry_run=request.dry_run,
+        limit_per_domain=request.limit_per_domain,
+    )
     logger.info(
         "benchmark_execution_completed",
         extra={"duration_ms": result["overall_duration_ms"]},
@@ -97,4 +119,7 @@ async def run_benchmark(
         subtask_breakdown=result["subtask_breakdown"],
         error_analysis=result["error_analysis"],
         overall_duration_ms=result["overall_duration_ms"],
+        dataset_statistics=result.get("dataset_statistics", {}),
+        failure_categorization=result.get("failure_categorization", {}),
+        benchmark_summary=result.get("benchmark_summary", {}),
     )
