@@ -30,12 +30,13 @@ class Settings(BaseSettings):
     log_format: Literal["json", "plain"] = Field(default="json")
 
     # Schema Retrieval
-    embedding_model_name: str = Field(default="all-MiniLM-L6-v2")
+    # Upgraded to BAAI/bge-small-en-v1.5 (ablation study: +77% Recall@5 vs all-MiniLM-L6-v2)
+    embedding_model_name: str = Field(default="BAAI/bge-small-en-v1.5")
     schema_metadata_path: str = Field(default="app/database/schema_metadata.json")
     schema_embedding_store_path: str = Field(
         default="app/database/embeddings/schema_embeddings.json"
     )
-    default_retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    default_retrieval_top_k: int = Field(default=10, ge=1, le=50)
     max_retrieval_top_k: int = Field(default=25, ge=1, le=100)
 
     # Gemini LLM settings

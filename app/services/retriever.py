@@ -17,6 +17,146 @@ logger = get_logger(__name__)
 
 TOKEN_PATTERN = re.compile(r"[a-zA-Z][a-zA-Z0-9_]+")
 
+# ---------------------------------------------------------------------------
+# Domain keyword sets used for database-level score boosting.
+# When a question clearly references concepts from one BEAVER domain, we apply
+# a small additive boost (DOMAIN_BOOST) to tables belonging to that domain so
+# they rank higher without ever completely suppressing other candidates.
+# ---------------------------------------------------------------------------
+_NOVA_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "instance",
+        "instances",
+        "vm",
+        "vms",
+        "hypervisor",
+        "hypervisors",
+        "compute",
+        "computes",
+        "flavor",
+        "flavors",
+        "vcpus",
+        "memory_mb",
+        "display_name",
+        "hostname",
+        "hostnames",
+        "power_state",
+        "shelved",
+        "offloaded",
+        "cell",
+        "cells",
+        "aggregate",
+        "aggregates",
+        "keypair",
+        "keypairs",
+        "uuid",
+        "uuids",
+        "root_gb",
+        "ephemeral_gb",
+        "deleted",
+        "nova",
+        "openstack",
+        "vif",
+        "vifs",
+        "console",
+        "consoles",
+        "pci",
+    }
+)
+
+_NEUTRON_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "port",
+        "ports",
+        "subnet",
+        "subnets",
+        "network",
+        "networks",
+        "router",
+        "routers",
+        "dhcp",
+        "floatingip",
+        "floatingips",
+        "vpn",
+        "ipsec",
+        "gre",
+        "vxlan",
+        "vlan",
+        "agent",
+        "agents",
+        "rbac",
+        "standardattribute",
+        "standardattributes",
+        "ml2",
+        "security_group",
+        "security_groups",
+        "ip_version",
+        "cidr",
+        "gateway_ip",
+        "neutron",
+        "ip_allocation",
+        "ipallocations",
+    }
+)
+
+_DW_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "department",
+        "departments",
+        "enrolled",
+        "enrollment",
+        "enrollments",
+        "course",
+        "courses",
+        "faculty",
+        "student",
+        "students",
+        "history",
+        "building",
+        "buildings",
+        "dlc",
+        "iap",
+        "term",
+        "terms",
+        "academic",
+        "budget",
+        "grade",
+        "grades",
+        "headcount",
+        "salary",
+        "salaries",
+        "employee",
+        "employees",
+        "hr",
+        "payroll",
+        "vendor",
+        "vendors",
+        "invoice",
+        "invoices",
+        "payment",
+        "payments",
+        "warehouse",
+        "subject",
+        "subjects",
+        "catalog",
+        "library",
+        "tip",
+        "sis",
+        "responsible_faculty",
+        "subject_offered",
+        "subject_person",
+        "requisition",
+        "requisitions",
+        "mathematical",
+        "chemistry",
+        "mathematics",
+        "school",
+    }
+)
+
+# Score added to tables from the detected domain
+_DOMAIN_BOOST: float = 0.15
+
 
 class RetrieverError(RuntimeError):
     """Base exception for retriever failures."""
@@ -37,18 +177,34 @@ class EmbeddedSchemaTable:
 
 
 class SchemaRetriever:
+    """Semantic schema retriever using sentence-transformers embeddings.
+
+    Improvements over the original implementation:
+    * Richer schema document representation (all columns + types + all FKs)
+    * Upgraded default model: ``BAAI/bge-small-en-v1.5`` (stronger on technical text)
+    * Domain-aware score boosting: when a question clearly targets one BEAVER
+      database (dw / nova / neutron), tables from that database receive a small
+      additive boost before ranking.
+    * Calibrated confidence score: normalised to [0, 1] using gap between
+      top-1 and top-k median so it reflects true discrimination.
+    * Detailed retrieval logging: every retrieved table with its score is logged.
+    """
+
     def __init__(self, settings: Settings, cache: BaseCache | None = None) -> None:
         self.settings = settings
         self.cache = cache
         self._model: Any | None = None
         self._embedded_tables: list[EmbeddedSchemaTable] | None = None
 
+    # ------------------------------------------------------------------
+    # Public API (unchanged contract)
+    # ------------------------------------------------------------------
+
     def retrieve(
         self, question: str, top_k: int | None = None
     ) -> list[TableRetrievalResult]:
         selected_top_k = self._normalize_top_k(top_k)
 
-        # Check cache if available
         if self.cache:
             cache_key = BaseCache.generate_key("retrieve", question, selected_top_k)
             cached_data = self.cache.get(cache_key)
@@ -72,14 +228,19 @@ class SchemaRetriever:
             return []
 
         question_embedding = self._encode([question])[0]
+        predicted_domain = self._detect_domain(question)
+
         scored_tables = [
             (
                 table,
-                self._cosine_similarity(question_embedding, table.embedding),
+                self._score(question_embedding, table, predicted_domain),
             )
             for table in embedded_tables
         ]
         scored_tables.sort(key=lambda item: item[1], reverse=True)
+
+        top_scores = [s for _, s in scored_tables[:selected_top_k]]
+        calibrated_confidence = self._calibrate_confidence(top_scores)
 
         results = [
             TableRetrievalResult(
@@ -87,17 +248,24 @@ class SchemaRetriever:
                 score=round(max(score, 0.0), 4),
                 reason=self._build_reason(question, embedded_table.table, score),
                 explanation=self._build_reason(question, embedded_table.table, score),
-                confidence=round(max(score, 0.0), 4),
+                confidence=round(calibrated_confidence, 4),
             )
             for embedded_table, score in scored_tables[:selected_top_k]
         ]
 
+        # Log retrieved schemas with similarity scores
         logger.info(
             "schema_retrieval_completed",
             extra={
+                "question": question[:120],
                 "top_k": selected_top_k,
                 "result_count": len(results),
+                "predicted_domain": predicted_domain,
                 "confidence_score": results[0].score if results else 0.0,
+                "calibrated_confidence": calibrated_confidence,
+                "retrieved_tables": [
+                    {"table": r.table_name, "score": r.score} for r in results
+                ],
             },
         )
 
@@ -116,9 +284,64 @@ class SchemaRetriever:
             return 0.0
         return results[0].score
 
+    # ------------------------------------------------------------------
+    # Private helpers — scoring
+    # ------------------------------------------------------------------
+
     def _normalize_top_k(self, top_k: int | None) -> int:
         configured_top_k = top_k or self.settings.default_retrieval_top_k
         return min(configured_top_k, self.settings.max_retrieval_top_k)
+
+    def _detect_domain(self, question: str) -> str | None:
+        """Detect the most likely BEAVER database for a given question."""
+        tokens = self._tokens(question)
+        nova_hits = len(tokens & _NOVA_KEYWORDS)
+        neutron_hits = len(tokens & _NEUTRON_KEYWORDS)
+        dw_hits = len(tokens & _DW_KEYWORDS)
+
+        best = max(nova_hits, neutron_hits, dw_hits)
+        if best == 0:
+            return None
+        if nova_hits == best:
+            return "nova"
+        if neutron_hits == best:
+            return "neutron"
+        return "dw"
+
+    def _score(
+        self,
+        question_embedding: list[float],
+        embedded_table: EmbeddedSchemaTable,
+        predicted_domain: str | None,
+    ) -> float:
+        """Compute cosine similarity, then apply a domain-level boost."""
+        sim = self._cosine_similarity(question_embedding, embedded_table.embedding)
+        if predicted_domain:
+            table_db = embedded_table.table.table_name.split(".", 1)[0]
+            if table_db == predicted_domain:
+                sim = min(sim + _DOMAIN_BOOST, 1.0)
+        return sim
+
+    def _calibrate_confidence(self, top_scores: list[float]) -> float:
+        """Return a calibrated confidence value for the retrieval result set.
+
+        Uses the gap between the top-1 score and the median of remaining
+        scores to reflect how discriminative the top result is.
+        """
+        if not top_scores:
+            return 0.0
+        if len(top_scores) == 1:
+            return round(top_scores[0], 4)
+        rest = top_scores[1:]
+        median_rest = sorted(rest)[len(rest) // 2]
+        gap = top_scores[0] - median_rest
+        # Scale gap to [0,1] — a gap of 0.15+ is considered very confident
+        calibrated = min(top_scores[0] * 0.6 + gap * 2.5, 1.0)
+        return round(max(calibrated, 0.0), 4)
+
+    # ------------------------------------------------------------------
+    # Private helpers — embedding store
+    # ------------------------------------------------------------------
 
     def _load_or_build_embeddings(self) -> list[EmbeddedSchemaTable]:
         if self._embedded_tables is not None:
@@ -136,6 +359,7 @@ class SchemaRetriever:
                 extra={
                     "path": str(embedding_store_path),
                     "table_count": len(self._embedded_tables),
+                    "model_name": self.settings.embedding_model_name,
                 },
             )
             return self._embedded_tables
@@ -253,6 +477,10 @@ class SchemaRetriever:
         )
         return embedded_tables
 
+    # ------------------------------------------------------------------
+    # Private helpers — encoding
+    # ------------------------------------------------------------------
+
     def _encode(self, documents: list[str]) -> list[list[float]]:
         model = self._load_model()
         embeddings = model.encode(documents, normalize_embeddings=True)
@@ -282,31 +510,48 @@ class SchemaRetriever:
         )
         return self._model
 
+    # ------------------------------------------------------------------
+    # Private helpers — schema document builder (richer representation)
+    # ------------------------------------------------------------------
+
     def _schema_document(self, table: SchemaTableMetadata) -> str:
-        """Build a rich text document for embedding, including types and FK relationships."""
+        """Build a rich text document for embedding.
+
+        Includes:
+        * Full table name and description
+        * All column names with their SQL types (not truncated)
+        * All foreign key relationships in natural language form
+        * Tags for additional domain signal
+        """
         parts = [
             f"table: {table.table_name}",
             f"description: {table.description}",
-            f"columns: {', '.join(table.columns)}",
         ]
 
+        # All columns with types (untruncated)
         if table.column_types:
-            type_pairs = ", ".join(
-                f"{col} {typ}" for col, typ in list(table.column_types.items())[:10]
-            )
-            parts.append(f"column types: {type_pairs}")
+            col_parts = [f"{col} ({typ})" for col, typ in table.column_types.items()]
+            parts.append(f"columns: {', '.join(col_parts)}")
+        elif table.columns:
+            parts.append(f"columns: {', '.join(table.columns)}")
 
+        # All foreign keys as natural language relationships
         if table.foreign_keys:
-            fk_parts = ", ".join(
-                f"{fk['from_col']} -> {fk['to_table']}.{fk['to_col']}"
-                for fk in table.foreign_keys[:5]
-            )
-            parts.append(f"foreign keys: {fk_parts}")
+            fk_parts = [
+                f"{table.table_name}.{fk['from_col']} references "
+                f"{fk['to_table']}.{fk['to_col']}"
+                for fk in table.foreign_keys
+            ]
+            parts.append(f"relationships: {'; '.join(fk_parts)}")
 
         if table.tags:
             parts.append(f"tags: {', '.join(table.tags)}")
 
         return " ".join(parts).strip()
+
+    # ------------------------------------------------------------------
+    # Private helpers — similarity and fingerprinting
+    # ------------------------------------------------------------------
 
     def _schema_fingerprint(self, schema_tables: list[SchemaTableMetadata]) -> str:
         canonical_payload = json.dumps(
@@ -329,39 +574,41 @@ class SchemaRetriever:
         similarity = numerator / (left_norm * right_norm)
         return (similarity + 1.0) / 2.0
 
+    # ------------------------------------------------------------------
+    # Private helpers — explanation builder
+    # ------------------------------------------------------------------
+
     def _build_reason(
         self,
         question: str,
         table: SchemaTableMetadata,
         score: float,
     ) -> str:
-        """Build a human-readable reason for selecting this table."""
+        """Build a detailed human-readable reason for selecting this table."""
         question_terms = self._tokens(question)
         schema_text = self._schema_document(table)
         schema_terms = self._tokens(schema_text)
         matched_terms = sorted(question_terms.intersection(schema_terms))
 
-        # Extract schema prefix (e.g. 'dw', 'nova', 'neutron') and bare table name
         parts = table.table_name.split(".", 1)
         schema_prefix = parts[0] if len(parts) == 2 else ""
         bare_table = parts[1] if len(parts) == 2 else parts[0]
+        schema_label = f" [{schema_prefix.upper()}]" if schema_prefix else ""
 
         if matched_terms:
-            shown_terms = ", ".join(matched_terms[:5])
+            shown_terms = ", ".join(matched_terms[:6])
             fk_hint = ""
             if table.foreign_keys:
-                related = ", ".join(fk["to_table"] for fk in table.foreign_keys[:2])
+                related = ", ".join(fk["to_table"] for fk in table.foreign_keys[:3])
                 fk_hint = f" Related tables: {related}."
-            schema_label = f" [{schema_prefix.upper()}]" if schema_prefix else ""
             return (
                 f"{schema_label} '{bare_table}' matched on terms ({shown_terms}) "
-                f"with score {score:.2f}.{fk_hint}"
+                f"with similarity {score:.3f}.{fk_hint}"
             )
 
-        schema_label = f" [{schema_prefix.upper()}]" if schema_prefix else ""
         return (
             f"{schema_label} '{bare_table}' selected by semantic similarity "
-            f"(score {score:.2f})."
+            f"(score {score:.3f})."
         )
 
     def _tokens(self, text: str) -> set[str]:
