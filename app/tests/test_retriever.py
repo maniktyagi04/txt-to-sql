@@ -1,4 +1,5 @@
 import json
+import math
 import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
@@ -6,6 +7,54 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.utils.config import get_settings, Settings
 from app.services.retriever import SchemaRetriever, EmbeddedSchemaTable
+
+# Vocabulary mapping for deterministic mock embeddings in tests
+VOCAB = [
+    "department",
+    "departments",
+    "organization",
+    "headcount",
+    "student",
+    "students",
+    "enrolled",
+    "academic",
+    "alice",
+    "enrollment",
+    "course",
+    "courses",
+    "classes",
+    "catalog",
+    "online",
+    "credits",
+    "programming",
+    "registration",
+    "grade",
+    "grades",
+    "beaver",
+]
+
+
+def mock_encode(self, documents: list[str]) -> list[list[float]]:
+    embeddings = []
+    for doc in documents:
+        doc_lower = doc.lower()
+        vec = [0.0] * 384
+        matched = False
+        for idx, word in enumerate(VOCAB):
+            if word in doc_lower:
+                vec[idx] = 1.0
+                matched = True
+        if not matched:
+            vec[0] = 1.0
+        norm = math.sqrt(sum(v * v for v in vec))
+        if norm > 0:
+            vec = [v / norm for v in vec]
+        embeddings.append(vec)
+    return embeddings
+
+
+# Patch SchemaRetriever._encode at the class level to run tests network-free
+SchemaRetriever._encode = mock_encode
 
 
 @pytest.fixture
