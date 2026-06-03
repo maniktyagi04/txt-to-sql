@@ -138,6 +138,7 @@ async def generate_sql(
             "latency_ms": round(result.latency_ms, 2),
             "attempt": result.attempt,
             "model": settings.gemini_model_name,
+            "validation_warnings": validation.get("warnings", []),
         },
     )
 
@@ -145,4 +146,6 @@ async def generate_sql(
         sql=result.sql,
         confidence=result.confidence,
         explanation=result.explanation,
+        is_valid=validation["is_valid"],
+        validation_warnings=validation.get("warnings", []),
     )

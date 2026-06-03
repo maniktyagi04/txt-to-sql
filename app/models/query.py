@@ -92,9 +92,19 @@ class QueryResponse(BaseModel):
         ...,
         description="Validation result indicating whether the query is valid and listing any errors.",
     )
+    validation_warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal validation warnings (e.g. best-effort join sanity issues).",
+    )
     execution_result: dict[str, Any] | None = Field(
         default=None,
         description="Execution result rows and column names, or null when execution is skipped/fails.",
+    )
+    confidence_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Combined confidence score: retrieval top-score × LLM generation confidence.",
     )
     latency_ms: float = Field(
         ..., description="Total pipeline latency in milliseconds."
@@ -113,9 +123,10 @@ class QueryResponse(BaseModel):
                         "confidence": 0.95,
                     }
                 ],
-                "generated_sql": "SELECT d.department_name, COUNT(e.student_id) AS enrollment_count FROM beaver.departments d JOIN beaver.courses c ON d.department_id = c.department_id JOIN beaver.enrollments e ON c.course_id = e.course_id GROUP BY d.department_name ORDER BY enrollment_count DESC;",
-                "sql_explanation": "This query joins departments to courses and then to enrollments to count the total student enrollments per department.",
-                "validation_result": {"is_valid": True, "errors": []},
+                "generated_sql": "SELECT d.department_name, COUNT(e.student_id) AS enrollment_count FROM beaver.departments d JOIN beaver.courses c ON d.department_id = c.department_id JOIN beaver.enrollments e ON c.course_id = e.course_id GROUP BY d.department_name ORDER BY enrollment_count DESC LIMIT 25;",
+                "sql_explanation": "Joins departments → courses → enrollments using FK chain to count enrolled students per department.",
+                "validation_result": {"is_valid": True, "errors": [], "warnings": []},
+                "validation_warnings": [],
                 "execution_result": {
                     "rows": [
                         {"department_name": "Computer Science", "enrollment_count": 5}
@@ -124,6 +135,7 @@ class QueryResponse(BaseModel):
                     "row_count": 1,
                     "execution_time_ms": 1.5,
                 },
+                "confidence_score": 0.83,
                 "latency_ms": 125.4,
             }
         }

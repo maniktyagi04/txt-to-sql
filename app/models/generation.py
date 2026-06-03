@@ -53,6 +53,14 @@ class GenerateSQLResponse(BaseModel):
             "This query joins departments and students and counts students per department."
         ],
     )
+    is_valid: bool = Field(
+        default=True,
+        description="Whether the generated SQL passed schema validation.",
+    )
+    validation_warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal validation warnings (e.g. join sanity issues).",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -60,6 +68,8 @@ class GenerateSQLResponse(BaseModel):
                 "sql": "SELECT d.department_name, COUNT(s.student_id) FROM beaver.departments d JOIN beaver.students s ON d.department_id = s.department_id GROUP BY d.department_name",
                 "confidence": 0.87,
                 "explanation": "This query joins departments and students and counts students per department.",
+                "is_valid": True,
+                "validation_warnings": [],
             }
         }
     )

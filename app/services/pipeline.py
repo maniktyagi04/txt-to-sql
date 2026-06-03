@@ -79,6 +79,8 @@ class PipelineResult:
         validation_result: dict[str, Any],
         execution_result: dict[str, Any] | None,
         latency_ms: float,
+        confidence_score: float = 0.0,
+        validation_warnings: list[str] | None = None,
     ) -> None:
         self.question = question
         self.retrieved_tables = retrieved_tables
@@ -87,6 +89,8 @@ class PipelineResult:
         self.validation_result = validation_result
         self.execution_result = execution_result
         self.latency_ms = latency_ms
+        self.confidence_score = confidence_score
+        self.validation_warnings = validation_warnings or []
 
 
 class QueryPipeline:
@@ -196,6 +200,7 @@ class QueryPipeline:
         # Stage 3: SQL Validation
         # ------------------------------------------------------------------ #
         validation = self.validator.validate(llm_result.sql)
+        validation_warnings: list[str] = validation.get("warnings", [])
         if not validation["is_valid"]:
             logger.error(
                 "pipeline_validation_failed",
@@ -205,7 +210,20 @@ class QueryPipeline:
                 f"SQL validation failed: {validation['errors']}"
             )
 
-        logger.info("pipeline_validation_passed")
+        if validation_warnings:
+            logger.warning(
+                "pipeline_validation_warnings",
+                extra={"warnings": validation_warnings, "sql": llm_result.sql},
+            )
+
+        # Combined confidence: product of retrieval signal and LLM confidence
+        retrieval_top_score = max((t.score for t in retrieved_tables), default=0.0)
+        combined_confidence = round(retrieval_top_score * llm_result.confidence, 4)
+
+        logger.info(
+            "pipeline_validation_passed",
+            extra={"combined_confidence": combined_confidence},
+        )
 
         # ------------------------------------------------------------------ #
         # Stage 4: SQL Execution (optional)
@@ -254,4 +272,6 @@ class QueryPipeline:
             validation_result=validation,
             execution_result=execution_result,
             latency_ms=latency_ms,
+            confidence_score=combined_confidence,
+            validation_warnings=validation_warnings,
         )

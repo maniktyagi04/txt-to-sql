@@ -165,16 +165,21 @@ class TestExecuteEndpoint:
         assert any("Validation Failed" in err["message"] for err in data["errors"])
 
     def test_api_execute_security_violation(self, client: TestClient):
-        # Query that bypasses syntax validator but is blocked at compilation by authorizer
+        # INSERT is now caught at the validator's mutation guard before
+        # it can reach the executor's security layer — returns 422.
         payload = {
             "sql": "INSERT INTO beaver.students (student_id, student_name, department_id, enrollment_year) VALUES ('S999', 'Hacker', 'D01', 2026);",
             "timeout_seconds": 3.0,
         }
         response = client.post("/execute", json=payload)
-        assert response.status_code == 403
+        assert response.status_code == 422
         data = response.json()
         assert "errors" in data
-        assert any("Security Violation" in err["message"] for err in data["errors"])
+        # Mutation guard produces a validation failure message
+        assert any(
+            "SELECT" in err["message"] or "Validation" in err["message"]
+            for err in data["errors"]
+        )
 
     def test_api_execute_timeout(self, client: TestClient):
         from unittest.mock import patch

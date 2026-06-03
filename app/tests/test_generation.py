@@ -134,13 +134,12 @@ class TestSQLPromptBuilder:
         assert "beaver.departments" in block
         assert "department_name" in block
 
-    def test_format_examples_block_has_three_examples(
-        self, prompt_builder: SQLPromptBuilder
-    ):
-        block = prompt_builder._format_examples_block()
+    def test_format_examples_block_has_examples(self, prompt_builder: SQLPromptBuilder):
+        block = prompt_builder._format_examples_block(
+            "Show departments with enrollment"
+        )
         assert "Example 1:" in block
         assert "Example 2:" in block
-        assert "Example 3:" in block
         assert '"confidence"' in block
 
     def test_build_prompt_contains_question(

@@ -159,6 +159,8 @@ async def run_query(
         generated_sql=result.generated_sql,
         sql_explanation=result.sql_explanation,
         validation_result=result.validation_result,
+        validation_warnings=result.validation_warnings,
         execution_result=result.execution_result,
+        confidence_score=result.confidence_score,
         latency_ms=result.latency_ms,
     )
